@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use crate::Result;
 use crate::history::revparse::read_commit;
 use crate::history::tree_map::{TreeEntryInfo, TreeMap, flatten_tree, head_tree};
-use crate::odb::{MODE_SYMLINK, ObjectId};
+use crate::odb::{Commit, MODE_SYMLINK, ObjectId};
 use crate::repo::Repository;
 use crate::util::path;
 use crate::worktree::{StatCache, scan};
@@ -119,6 +119,34 @@ pub fn worktree_map(repo: &Repository) -> Result<TreeMap> {
         );
     }
     Ok(map)
+}
+
+/// Sides for a commit against its parent, both backed by the object store.
+pub fn commit_sides<'a>(
+    repo: &'a Repository,
+    commit: &Commit,
+) -> Result<(DiffSide<'a>, DiffSide<'a>)> {
+    let store = repo.store();
+    let right_map = flatten_tree(&store, commit.tree)?;
+    let left_map = match commit.parent {
+        Some(parent) => {
+            let parent = read_commit(repo, parent)?;
+            flatten_tree(&store, parent.tree)?
+        }
+        None => TreeMap::new(),
+    };
+    Ok((
+        DiffSide {
+            repo,
+            map: left_map,
+            kind: SideKind::Store,
+        },
+        DiffSide {
+            repo,
+            map: right_map,
+            kind: SideKind::Store,
+        },
+    ))
 }
 
 pub fn diff_trees(before: &TreeMap, after: &TreeMap) -> Vec<FileChange> {

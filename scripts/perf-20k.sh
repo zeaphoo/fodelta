@@ -20,6 +20,11 @@ PY
 "$BIN" init >/dev/null
 /usr/bin/time -f "commit:   %e s" "$BIN" commit -m "20k files" >/dev/null
 /usr/bin/time -f "status:   %e s" "$BIN" status >/dev/null
+set +e
+/usr/bin/time -f "noop:     %e s" -o /tmp/fodelta-noop.time "$BIN" commit -m noop >/dev/null 2>/dev/null
+cat /tmp/fodelta-noop.time
+rm -f /tmp/fodelta-noop.time
+set -e
 /usr/bin/time -f "commit-x: %e s" sh -c "printf 'x\n' >> data/file-42.txt && '$BIN' commit -m select -- data/file-42.txt >/dev/null"
 /usr/bin/time -f "log:      %e s" "$BIN" log -n 50 --oneline >/dev/null
 "$BIN" fsck >/dev/null

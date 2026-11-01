@@ -3,17 +3,16 @@
 //! This module deliberately contains only argument parsing and dispatch. All
 //! behavior lives in the library modules so it can be exercised from tests.
 
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 use crate::diff::render::{RenderOptions, render as render_diff};
-use crate::diff::{
-    DiffAlgorithm, DiffSide, SideKind, diff_trees, head_side, rev_side, worktree_side,
-};
+use crate::diff::{DiffAlgorithm, diff_trees, head_side, rev_side, worktree_side};
 use crate::history::{
-    CommitOptions, LogOptions, RollbackOptions, ShowOutput, create_commit, flatten_tree,
-    log_entries, read_commit, rollback as rollback_history, show,
+    CommitOptions, LogOptions, RollbackOptions, ShowOutput, create_commit, log_entries,
+    rollback as rollback_history, show,
 };
 use crate::ignore as ignore_rules;
 use crate::maintenance::{fsck as fsck_repo, gc as gc_repo};
@@ -250,9 +249,29 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
         cwd,
         command,
         quiet,
-        color: _,
-        jobs: _,
+        color,
+        jobs,
     } = cli;
+
+    let color_enabled = match color {
+        ColorChoice::Always => true,
+        ColorChoice::Never => false,
+        ColorChoice::Auto => {
+            std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+        }
+    };
+    crate::output::set_enabled(color_enabled);
+    if let Some(jobs) = jobs {
+        if jobs == 0 {
+            return Err(FodeltaError::Config(
+                "--jobs must be at least 1".to_string(),
+            ));
+        }
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(jobs)
+            .build_global();
+    }
+
     let start = resolve_start(&cwd)?;
 
     match command {
@@ -549,7 +568,7 @@ fn cmd_diff(
         let options = render_options(&repo, unified);
         for change in &changes {
             let rendered = render_diff(change, &left, &right, &options)?;
-            print!("{}", rendered.text);
+            print!("{}", crate::output::colorize_patch(&rendered.text));
             if !rendered.text.ends_with('\n') {
                 println!();
             }
@@ -620,14 +639,42 @@ fn cmd_log(
             }
         }
         if stat {
-            if !entry.changes.is_empty() {
+            let (left, right) = crate::diff::commit_sides(&repo, &entry.commit)?;
+            let changes = diff_trees(&left.map, &right.map);
+            if !changes.is_empty() {
                 println!();
             }
-            for (path, kind) in &entry.changes {
-                println!("  {} {}", kind.letter(), path::display(path));
+            let options = render_options(&repo, None);
+            let mut insertions = 0usize;
+            let mut deletions = 0usize;
+            for change in &changes {
+                let rendered = render_diff(change, &left, &right, &options)?;
+                match rendered.stats {
+                    Some(stats) => {
+                        insertions += stats.added;
+                        deletions += stats.removed;
+                        println!(
+                            "  {} {} | {} +, {} -",
+                            change.kind.letter(),
+                            path::display(&change.path),
+                            stats.added,
+                            stats.removed
+                        );
+                    }
+                    None => println!(
+                        "  {} {} | Bin",
+                        change.kind.letter(),
+                        path::display(&change.path)
+                    ),
+                }
             }
-            if !entry.changes.is_empty() {
-                println!("  {} file(s) changed", entry.changes.len());
+            if !changes.is_empty() {
+                println!(
+                    "  {} files changed, {} insertions(+), {} deletions(-)",
+                    changes.len(),
+                    insertions,
+                    deletions
+                );
             }
         }
     }
@@ -661,25 +708,7 @@ fn cmd_show(start: &std::path::Path, spec: &str) -> Result<ExitCode> {
                 println!("    {line}");
             }
             println!();
-            let store = repo.store();
-            let right_map = flatten_tree(&store, view.commit.tree)?;
-            let left_map = match view.commit.parent {
-                Some(parent) => {
-                    let parent = read_commit(&repo, parent)?;
-                    flatten_tree(&store, parent.tree)?
-                }
-                None => crate::history::TreeMap::new(),
-            };
-            let left = DiffSide {
-                repo: &repo,
-                map: left_map,
-                kind: SideKind::Store,
-            };
-            let right = DiffSide {
-                repo: &repo,
-                map: right_map,
-                kind: SideKind::Store,
-            };
+            let (left, right) = crate::diff::commit_sides(&repo, &view.commit)?;
             let changes = diff_trees(&left.map, &right.map);
             if changes.is_empty() {
                 println!("(no changes)");
@@ -687,7 +716,7 @@ fn cmd_show(start: &std::path::Path, spec: &str) -> Result<ExitCode> {
                 let options = render_options(&repo, None);
                 for change in &changes {
                     let rendered = render_diff(change, &left, &right, &options)?;
-                    print!("{}", rendered.text);
+                    print!("{}", crate::output::colorize_patch(&rendered.text));
                     if !rendered.text.ends_with('\n') {
                         println!();
                     }
@@ -758,13 +787,25 @@ fn cmd_status(start: &std::path::Path, include_ignored: bool) -> Result<ExitCode
     } else {
         println!("Changes not committed:");
         for entry in &report.added {
-            println!("  new file: {}", path::display(entry));
+            println!(
+                "  {} {}",
+                crate::output::paint(crate::output::green(), "new file:"),
+                path::display(entry)
+            );
         }
         for entry in &report.modified {
-            println!("  modified: {}", path::display(entry));
+            println!(
+                "  {} {}",
+                crate::output::paint(crate::output::yellow(), "modified:"),
+                path::display(entry)
+            );
         }
         for entry in &report.deleted {
-            println!("  deleted:  {}", path::display(entry));
+            println!(
+                "  {} {}",
+                crate::output::paint(crate::output::red(), "deleted: "),
+                path::display(entry)
+            );
         }
         println!();
         println!("{} change(s)", report.total_changes());

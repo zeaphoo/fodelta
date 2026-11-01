@@ -142,3 +142,34 @@ fn path_filter_limits_output() {
     assert!(text.contains("a/a.txt"), "{text}");
     assert!(!text.contains("b/b.txt"), "{text}");
 }
+
+#[test]
+fn zero_context_omits_unchanged_lines() {
+    let repo = TestRepo::new();
+    seed(&repo);
+    repo.write("a.txt", b"one\nTHREE\n");
+    let output = run(&repo, &["diff", "-U0"]);
+    let text = stdout(&output);
+    assert!(text.contains("-TWO"), "{text}");
+    assert!(text.contains("+THREE"), "{text}");
+    assert!(!text.lines().any(|line| line == " one"), "{text}");
+}
+
+#[cfg(unix)]
+#[test]
+fn type_change_is_reported_as_t() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("cfg", b"data\n");
+    assert!(run(&repo, &["commit", "-m", "file"]).status.success());
+    std::fs::remove_file(repo.path_of("cfg")).unwrap();
+    std::os::unix::fs::symlink("target", repo.path_of("cfg")).unwrap();
+
+    let output = run(&repo, &["diff", "--name-status"]);
+    assert!(stdout(&output).contains("T\tcfg"), "{}", stdout(&output));
+
+    let output = run(&repo, &["diff"]);
+    let text = stdout(&output);
+    assert!(text.contains("deleted file mode 100644"), "{text}");
+    assert!(text.contains("new file mode 120000"), "{text}");
+}

@@ -150,3 +150,41 @@ fn short_hash_resolves_to_a_commit() {
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert!(stdout(&output).contains("second"));
 }
+
+#[test]
+fn log_stat_reports_line_counts() {
+    let repo = TestRepo::new();
+    seed_history(&repo);
+    let output = run(&repo, &["log", "-n", "1", "--stat"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("M a.txt | 1 +, 1 -"), "{text}");
+    assert!(text.contains("A b.txt | 1 +, 0 -"), "{text}");
+    assert!(
+        text.contains("2 files changed, 2 insertions(+), 1 deletions(-)"),
+        "{text}"
+    );
+}
+
+#[test]
+fn log_reverse_shows_oldest_first() {
+    let repo = TestRepo::new();
+    seed_history(&repo);
+    let output = run(&repo, &["log", "--oneline", "--reverse"]);
+    let text = stdout(&output);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].contains("first"), "{text}");
+    assert!(lines[1].contains("second"), "{text}");
+}
+
+#[test]
+fn show_root_commit_is_all_added() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"a\n");
+    assert!(run(&repo, &["commit", "-m", "first"]).status.success());
+    let output = run(&repo, &["show", "HEAD"]);
+    let text = stdout(&output);
+    assert!(text.contains("new file mode 100644"), "{text}");
+    assert!(text.contains("+a"), "{text}");
+}

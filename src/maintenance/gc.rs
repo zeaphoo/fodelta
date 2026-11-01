@@ -58,6 +58,7 @@ pub fn gc(repo: &Repository, dry_run: bool) -> Result<GcOutcome> {
 
     if !dry_run {
         cleanup_temp_files(store.root())?;
+        crate::safety::prune_log(repo, repo.config.core.safety_retention_days)?;
     }
 
     Ok(GcOutcome {

@@ -177,3 +177,22 @@ fn executable_bit_is_reported_as_a_modification() {
     let output = run(&repo, &["status"]);
     assert!(stdout(&output).contains("modified: run.sh"));
 }
+
+#[cfg(unix)]
+#[test]
+fn warns_about_unsupported_file_types() {
+    let repo = TestRepo::new();
+    init(&repo);
+    let status = std::process::Command::new("mkfifo")
+        .arg(repo.path_of("pipe"))
+        .status();
+    if !status.map(|status| status.success()).unwrap_or(false) {
+        return;
+    }
+    let output = run(&repo, &["status"]);
+    assert!(
+        stderr(&output).contains("skipping unsupported"),
+        "{}",
+        stderr(&output)
+    );
+}

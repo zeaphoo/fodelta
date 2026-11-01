@@ -6,7 +6,8 @@
 | 基准 | 规模 | 结果 |
 |------|------|------|
 | `render_unified_5k_lines` | 5,000 行单文件 diff | 约 140 µs |
-| `status_1k_clean` | 1,000 文件、无变更、热 stat-cache | 约 4.1 ms |
+| `status_1k_clean` | 1,000 文件、无变更、热 stat-cache | 约 3.9 ms |
+| `commit_noop_1k` | 1,000 文件、无变更提交（只检查不写对象） | 约 4.8 ms |
 
 按线性外推，2 万文件的干净 `status` 约 80 ms，低于设计目标 150 ms；正式验收见
 `openspec/changes/archive/2026-11-01-add-fodelta-core/tasks.md` 的 9.3。
@@ -23,9 +24,10 @@ cargo bench --bench status -- --quick
 `./scripts/perf-20k.sh`（release，20,000 个小文件，首次全量提交）：
 
 ```text
-commit:   1.96 s     # 首次提交，需要哈希/压缩全部 20k 文件
+commit:   1.65 s     # 首次提交，需要哈希/压缩全部 20k 文件
 status:   0.10 s     # 热 stat-cache，无变更
-commit-x: 0.23 s     # 只提交 data/file-42.txt
+noop:     0.10 s     # 无变化提交，只做 stat-cache 命中检查
+commit-x: 0.25 s     # 只提交 data/file-42.txt
 log:      0.00 s     # log -n 50
 ```
 

@@ -15,6 +15,7 @@ pub mod history;
 pub mod ignore;
 pub mod maintenance;
 pub mod odb;
+pub mod output;
 pub mod repo;
 pub mod safety;
 pub mod util;

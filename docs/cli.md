@@ -7,8 +7,8 @@ fodelta [-C <DIR>] [--color auto|always|never] [--jobs N] [-q] <command>
 ```
 
 - `-C <DIR>`：以指定目录为起点查找仓库。
-- `--color`：彩色输出策略，遵循 `NO_COLOR`。
-- `--jobs`：并行任务数，默认等于 CPU 数。
+- `--color auto|always|never`：彩色输出策略；`auto` 仅在终端着色并尊重 `NO_COLOR`，显式 `always` 优先。
+- `--jobs N`：提交时并行哈希/压缩的工作线程数，默认等于 CPU 数。
 - `-q`：减少提示输出。
 
 ## init
@@ -52,7 +52,7 @@ fodelta commit -m "empty" --allow-empty
 ```bash
 fodelta log
 fodelta log --oneline
-fodelta log -n 10 --stat
+fodelta log -n 10 --stat      # 每文件 +N/-M 行级统计
 fodelta log --reverse
 fodelta log -- src/
 ```

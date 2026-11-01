@@ -98,3 +98,43 @@ fn gc_keeps_safety_snapshots() {
     let output = run(&repo, &["show", &safety]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
 }
+
+#[test]
+fn gc_prunes_expired_safety_log_entries() {
+    let repo = TestRepo::new();
+    seed(&repo);
+    repo.write("a.txt", b"dirty");
+    assert!(run(&repo, &["restore", "--", "a.txt"]).status.success());
+
+    let path = repo.path_of(".fodelta/logs/safety");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let rewritten: String = text
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, ' ');
+            let oid = parts.next()?;
+            let _timestamp = parts.next()?;
+            let rest = parts.next()?;
+            let (_offset, reason) = rest.split_once('\t')?;
+            Some(format!("{oid} 0 +0000\t{reason}\n"))
+        })
+        .collect();
+    repo.write(".fodelta/logs/safety", rewritten);
+
+    assert!(run(&repo, &["gc"]).status.success());
+    let output = run(&repo, &["safety"]);
+    assert!(
+        stdout(&output).contains("no safety snapshots"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn full_fsck_passes_on_a_healthy_repository() {
+    let repo = TestRepo::new();
+    seed(&repo);
+    let output = run(&repo, &["fsck", "--full"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&output).contains("checked "));
+}

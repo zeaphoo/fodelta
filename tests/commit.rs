@@ -118,3 +118,71 @@ fn empty_message_is_rejected() {
     assert_eq!(output.status.code(), Some(2));
     assert!(stderr(&output).contains("must not be empty"));
 }
+
+#[test]
+fn jobs_option_is_accepted() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"a");
+    let output = run(&repo, &["--jobs", "2", "commit", "-m", "seed"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+}
+
+#[cfg(unix)]
+#[test]
+fn unchanged_files_are_not_read_again() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"a");
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+
+    let path = repo.path_of("a.txt");
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_mode(0o000);
+    std::fs::set_permissions(&path, permissions).unwrap();
+
+    let output = run(&repo, &["commit", "-m", "noop"]);
+
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_mode(0o644);
+    std::fs::set_permissions(&path, permissions).unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("nothing to commit"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn jobs_zero_is_rejected() {
+    let repo = TestRepo::new();
+    init(&repo);
+    let output = run(&repo, &["--jobs", "0", "status"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("--jobs"), "{}", stderr(&output));
+}
+
+#[test]
+fn directory_prefix_commit_leaves_other_changes() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("src/a.rs", b"a1");
+    repo.write("src/b.rs", b"b1");
+    repo.write("docs/x.md", b"x1");
+    assert!(run(&repo, &["commit", "-m", "initial"]).status.success());
+
+    repo.write("src/a.rs", b"a2");
+    repo.write("src/b.rs", b"b2");
+    repo.write("docs/x.md", b"x2");
+    let output = run(&repo, &["commit", "-m", "src", "--", "src/"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&output).contains("2 file(s) changed"));
+
+    let status = stdout(&run(&repo, &["status"]));
+    assert!(status.contains("modified: docs/x.md"), "{status}");
+    assert!(!status.contains("src/a.rs"), "{status}");
+}

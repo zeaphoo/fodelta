@@ -3,15 +3,15 @@
 
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::Result;
-use std::path::Path;
 
 use crate::history::tree_map::{TreeEntryInfo, TreeMap, build_trees, head_tree};
 use crate::odb::ObjectStore;
 use crate::odb::{Commit, ObjectId, ObjectKind};
 use crate::repo::Repository;
+use crate::util::atomic::write_atomic;
 use crate::util::time;
 use crate::worktree::scan::{self, EntryKind, WorktreeEntry};
 
@@ -96,6 +96,7 @@ pub fn list(repo: &Repository) -> Result<Vec<SafetyEntry>> {
         Err(error) => return Err(error.into()),
     };
     let mut entries = Vec::new();
+    let store = repo.store();
     for line in text.lines() {
         let Some((meta, reason)) = line.split_once('\t') else {
             continue;
@@ -115,6 +116,9 @@ pub fn list(repo: &Repository) -> Result<Vec<SafetyEntry>> {
         let Some(offset_minutes) = time::parse_offset(offset) else {
             continue;
         };
+        if !store.exists(oid) {
+            continue;
+        }
         entries.push(SafetyEntry {
             oid,
             timestamp,
@@ -124,6 +128,41 @@ pub fn list(repo: &Repository) -> Result<Vec<SafetyEntry>> {
     }
     entries.reverse();
     Ok(entries)
+}
+
+/// Drop safety records older than the retention window.
+pub fn prune_log(repo: &Repository, retention_days: u64) -> Result<()> {
+    let path = repo.fodelta.join(LOG_FILE);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let cutoff = time::now()
+        .0
+        .saturating_sub((retention_days.saturating_mul(86_400)) as i64);
+    let mut kept = String::new();
+    for line in text.lines() {
+        let Some((meta, _reason)) = line.split_once('\t') else {
+            continue;
+        };
+        let mut fields = meta.split_whitespace();
+        let (Some(_oid), Some(timestamp)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let Ok(timestamp) = timestamp.parse::<i64>() else {
+            continue;
+        };
+        if timestamp < cutoff {
+            continue;
+        }
+        kept.push_str(line);
+        kept.push('\n');
+    }
+    if kept != text {
+        write_atomic(&path, kept.as_bytes(), repo.config.core.fsync.fsync_refs())?;
+    }
+    Ok(())
 }
 
 pub fn log_path(repo: &Repository) -> PathBuf {

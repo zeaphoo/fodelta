@@ -173,3 +173,14 @@ fn restore_recreates_symlinks() {
         std::path::Path::new("target")
     );
 }
+
+#[test]
+fn rollback_uses_a_custom_message() {
+    let repo = TestRepo::new();
+    seed(&repo);
+    let output = run(&repo, &["rollback", "HEAD~1", "-m", "back to v1"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&output).contains("back to v1"));
+    let log = stdout(&run(&repo, &["log", "--oneline", "-n", "1"]));
+    assert!(log.contains("back to v1"), "{log}");
+}

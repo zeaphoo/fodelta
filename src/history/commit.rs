@@ -1,7 +1,7 @@
 //! Create a commit from the working tree, optionally restricted to paths.
 
+use rayon::prelude::*;
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use crate::history::head_tree;
 use crate::history::tree_map::{TreeEntryInfo, TreeMap, build_trees};
@@ -40,6 +40,7 @@ pub fn create_commit(repo: &Repository, options: &CommitOptions) -> Result<Commi
     let tracked: BTreeSet<Vec<u8>> = head_map.keys().cloned().collect();
     let worktree = scan::scan(&repo.root, &tracked)?;
     let store = repo.store();
+    let cache = StatCache::load(&repo.fodelta.join("stat-cache"));
     let max_file_size = repo
         .config
         .core
@@ -54,11 +55,30 @@ pub fn create_commit(repo: &Repository, options: &CommitOptions) -> Result<Commi
     let mut selected_worktree: Vec<(&WorktreeEntry, ObjectId)> = Vec::new();
 
     if options.paths.is_empty() {
-        for entry in &worktree {
-            ensure_size(entry, max_file_size, options.allow_large_files)?;
-            let info = write_entry(&store, &repo.root, entry)?;
-            new_map.insert(entry.path.clone(), info);
-            selected_worktree.push((entry, info.oid));
+        let resolved: Vec<Result<ObjectId>> = worktree
+            .par_iter()
+            .map(|entry| {
+                resolve_entry(
+                    repo,
+                    &store,
+                    &cache,
+                    &head_map,
+                    entry,
+                    max_file_size,
+                    options.allow_large_files,
+                )
+            })
+            .collect();
+        for (entry, oid) in worktree.iter().zip(resolved) {
+            let oid = oid?;
+            new_map.insert(
+                entry.path.clone(),
+                TreeEntryInfo {
+                    mode: entry.stat.mode,
+                    oid,
+                },
+            );
+            selected_worktree.push((entry, oid));
         }
     } else {
         for spec in &options.paths {
@@ -96,10 +116,23 @@ pub fn create_commit(repo: &Repository, options: &CommitOptions) -> Result<Commi
 
             new_map.retain(|candidate, _| !path::is_within(spec, candidate));
             for entry in worktree_matches {
-                ensure_size(entry, max_file_size, options.allow_large_files)?;
-                let info = write_entry(&store, &repo.root, entry)?;
-                new_map.insert(entry.path.clone(), info);
-                selected_worktree.push((entry, info.oid));
+                let oid = resolve_entry(
+                    repo,
+                    &store,
+                    &cache,
+                    &head_map,
+                    entry,
+                    max_file_size,
+                    options.allow_large_files,
+                )?;
+                new_map.insert(
+                    entry.path.clone(),
+                    TreeEntryInfo {
+                        mode: entry.stat.mode,
+                        oid,
+                    },
+                );
+                selected_worktree.push((entry, oid));
             }
         }
     }
@@ -136,22 +169,41 @@ pub fn create_commit(repo: &Repository, options: &CommitOptions) -> Result<Commi
     })
 }
 
-fn write_entry(
+fn resolve_entry(
+    repo: &Repository,
     store: &crate::odb::ObjectStore,
-    root: &Path,
+    cache: &StatCache,
+    head: &TreeMap,
     entry: &WorktreeEntry,
-) -> Result<TreeEntryInfo> {
-    let oid = match entry.kind {
+    limit: u64,
+    allow_large: bool,
+) -> Result<ObjectId> {
+    ensure_size(entry, limit, allow_large)?;
+    match entry.kind {
         EntryKind::Symlink => {
-            let target = scan::symlink_target_bytes(&entry.absolute(root))?;
-            store.write_blob(&target)?
+            let target = scan::symlink_target_bytes(&entry.absolute(&repo.root))?;
+            let oid = crate::odb::blob_hash(&target);
+            if store.exists(oid) {
+                return Ok(oid);
+            }
+            store.write_blob(&target)
         }
-        EntryKind::File => store.write_file(&entry.absolute(root))?,
-    };
-    Ok(TreeEntryInfo {
-        mode: entry.stat.mode,
-        oid,
-    })
+        EntryKind::File => {
+            if let Some(oid) = cache.lookup(&entry.path, entry.stat) {
+                if store.exists(oid) {
+                    return Ok(oid);
+                }
+                return store.write_file(&entry.absolute(&repo.root));
+            }
+            if head.contains_key(&entry.path) {
+                let oid = store.hash_file(&entry.absolute(&repo.root))?;
+                if store.exists(oid) {
+                    return Ok(oid);
+                }
+            }
+            store.write_file(&entry.absolute(&repo.root))
+        }
+    }
 }
 
 fn ensure_size(entry: &WorktreeEntry, limit: u64, allow_large: bool) -> Result<()> {

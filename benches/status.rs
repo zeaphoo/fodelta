@@ -29,6 +29,21 @@ fn bench_status(c: &mut Criterion) {
     c.bench_function("status_1k_clean", |b| {
         b.iter(|| black_box(compute_status(&repo, false).unwrap().total_changes()));
     });
+
+    c.bench_function("commit_noop_1k", |b| {
+        b.iter(|| {
+            let result = create_commit(
+                &repo,
+                &CommitOptions {
+                    message: "noop".to_string(),
+                    allow_empty: false,
+                    allow_large_files: false,
+                    paths: Vec::new(),
+                },
+            );
+            black_box(result.is_err());
+        });
+    });
 }
 
 criterion_group!(benches, bench_status);

@@ -108,6 +108,10 @@ fn walk(root: &Path, respect_gitignore: bool) -> Result<Vec<WorktreeEntry>> {
             continue;
         }
         if !file_type.is_file() && !file_type.is_symlink() {
+            eprintln!(
+                "warning: skipping unsupported file: {}",
+                entry.path().display()
+            );
             continue;
         }
         let relative = entry
