@@ -9,7 +9,10 @@ use std::path::PathBuf;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 use crate::diff::render::{RenderOptions, render as render_diff};
-use crate::diff::{DiffAlgorithm, diff_trees, head_side, rev_side, worktree_side};
+use crate::diff::text::WhitespaceOptions;
+use crate::diff::{
+    DiffAlgorithm, FileChange, FileChangeKind, diff_trees, head_side, rev_side, worktree_side,
+};
 use crate::history::{
     CommitOptions, LogOptions, RollbackOptions, ShowOutput, create_commit, log_entries,
     rollback as rollback_history, show,
@@ -151,6 +154,26 @@ pub enum Command {
         /// Exit with 1 when differences exist.
         #[arg(long = "exit-code")]
         exit_code: bool,
+
+        /// Ignore all whitespace when comparing lines.
+        #[arg(short = 'w', long = "ignore-all-space")]
+        ignore_all_space: bool,
+
+        /// Ignore changes in the amount of whitespace.
+        #[arg(short = 'b', long = "ignore-space-change")]
+        ignore_space_change: bool,
+
+        /// Ignore whitespace at end of lines.
+        #[arg(long = "ignore-space-at-eol")]
+        ignore_space_at_eol: bool,
+
+        /// Diff algorithm: myers, patience or histogram.
+        #[arg(
+            long = "diff-algorithm",
+            value_name = "ALG",
+            value_parser = ["myers", "patience", "histogram"]
+        )]
+        algorithm: Option<String>,
 
         /// Restrict the comparison to these paths.
         #[arg(last = true, value_name = "PATH")]
@@ -313,6 +336,10 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
             name_only,
             unified,
             exit_code,
+            ignore_all_space,
+            ignore_space_change,
+            ignore_space_at_eol,
+            algorithm,
             paths,
         } => cmd_diff(
             &start,
@@ -322,6 +349,10 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
             name_only,
             unified,
             exit_code,
+            ignore_all_space,
+            ignore_space_change,
+            ignore_space_at_eol,
+            algorithm,
             &paths,
         ),
         Command::Restore {
@@ -500,6 +531,10 @@ fn cmd_diff(
     name_only: bool,
     unified: Option<u32>,
     exit_code: bool,
+    ignore_all_space: bool,
+    ignore_space_change: bool,
+    ignore_space_at_eol: bool,
+    algorithm: Option<String>,
     paths: &[PathBuf],
 ) -> Result<ExitCode> {
     let repo = Repository::open(start)?;
@@ -530,24 +565,77 @@ fn cmd_diff(
 
     let mut changes = diff_trees(&left.map, &right.map);
     if !specs.is_empty() {
-        changes.retain(|change| specs.iter().any(|spec| path::is_within(spec, &change.path)));
+        changes.retain(|change| change_matches(change, &specs));
+    }
+    if changes.is_empty() {
+        return Ok(ExitCode::Success);
     }
 
     if name_only {
         for change in &changes {
             println!("{}", path::display(&change.path));
         }
-    } else if name_status {
+        return Ok(if exit_code {
+            ExitCode::Diff
+        } else {
+            ExitCode::Success
+        });
+    }
+    if name_status {
         for change in &changes {
-            println!("{}\t{}", change.kind.letter(), path::display(&change.path));
+            if change.kind == FileChangeKind::Renamed {
+                let old = change.old_path.as_deref().unwrap_or(&change.path);
+                println!(
+                    "R{}\t{}\t{}",
+                    change.similarity.unwrap_or(100),
+                    path::display(old),
+                    path::display(&change.path)
+                );
+            } else {
+                println!("{}\t{}", change.kind.letter(), path::display(&change.path));
+            }
         }
-    } else if stat {
-        let options = render_options(&repo, unified);
+        return Ok(if exit_code {
+            ExitCode::Diff
+        } else {
+            ExitCode::Success
+        });
+    }
+
+    let whitespace = WhitespaceOptions {
+        ignore_all: ignore_all_space,
+        ignore_change: ignore_space_change,
+        ignore_eol: ignore_space_at_eol,
+    };
+    let options = render_options(
+        &repo,
+        unified,
+        algorithm.as_deref().map(DiffAlgorithm::from_config),
+        whitespace,
+    );
+
+    let mut rendered = Vec::new();
+    for change in &changes {
+        let output = render_diff(change, &left, &right, &options)?;
+        if !output.text.is_empty() {
+            rendered.push((change, output));
+        }
+    }
+
+    if stat {
         let mut insertions = 0usize;
         let mut deletions = 0usize;
-        for change in &changes {
-            let rendered = render_diff(change, &left, &right, &options)?;
-            match rendered.stats {
+        for (change, output) in &rendered {
+            if change.kind == FileChangeKind::Renamed {
+                let old = change.old_path.as_deref().unwrap_or(&change.path);
+                println!(
+                    " {} => {} | 0",
+                    path::display(old),
+                    path::display(&change.path)
+                );
+                continue;
+            }
+            match output.stats {
                 Some(stats) => {
                     insertions += stats.added;
                     deletions += stats.removed;
@@ -561,38 +649,62 @@ fn cmd_diff(
                 None => println!(" {} | Bin", path::display(&change.path)),
             }
         }
-        println!(
-            "{} files changed, {} insertions(+), {} deletions(-)",
-            changes.len(),
-            insertions,
-            deletions
-        );
+        if !rendered.is_empty() {
+            println!(
+                "{} {} changed, {} {}(+), {} {}(-)",
+                rendered.len(),
+                plural(rendered.len(), "file", "files"),
+                insertions,
+                plural(insertions, "insertion", "insertions"),
+                deletions,
+                plural(deletions, "deletion", "deletions")
+            );
+        }
     } else {
-        let options = render_options(&repo, unified);
-        for change in &changes {
-            let rendered = render_diff(change, &left, &right, &options)?;
-            print!("{}", crate::output::colorize_patch(&rendered.text));
-            if !rendered.text.ends_with('\n') {
+        for (_, output) in &rendered {
+            print!("{}", crate::output::colorize_patch(&output.text));
+            if !output.text.ends_with('\n') {
                 println!();
             }
             println!();
         }
     }
 
-    if exit_code && !changes.is_empty() {
+    if exit_code && !rendered.is_empty() {
         Ok(ExitCode::Diff)
     } else {
         Ok(ExitCode::Success)
     }
 }
 
-fn render_options(repo: &Repository, unified: Option<u32>) -> RenderOptions {
+fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
+    if count == 1 { singular } else { plural }
+}
+
+fn change_matches(change: &FileChange, specs: &[Vec<u8>]) -> bool {
+    specs.iter().any(|spec| {
+        path::is_within(spec, &change.path)
+            || change
+                .old_path
+                .as_ref()
+                .is_some_and(|old| path::is_within(spec, old))
+    })
+}
+
+fn render_options(
+    repo: &Repository,
+    unified: Option<u32>,
+    algorithm: Option<DiffAlgorithm>,
+    whitespace: WhitespaceOptions,
+) -> RenderOptions {
     RenderOptions {
         context: unified
             .map(|value| value as usize)
             .unwrap_or(repo.config.diff.context as usize),
-        algorithm: DiffAlgorithm::from_config(&repo.config.diff.algorithm),
+        algorithm: algorithm
+            .unwrap_or_else(|| DiffAlgorithm::from_config(&repo.config.diff.algorithm)),
         max_inline_bytes: repo.config.diff.max_inline_bytes as usize,
+        whitespace,
     }
 }
 
@@ -647,10 +759,19 @@ fn cmd_log(
             if !changes.is_empty() {
                 println!();
             }
-            let options = render_options(&repo, None);
+            let options = render_options(&repo, None, None, WhitespaceOptions::default());
             let mut insertions = 0usize;
             let mut deletions = 0usize;
             for change in &changes {
+                if change.kind == FileChangeKind::Renamed {
+                    let old = change.old_path.as_deref().unwrap_or(&change.path);
+                    println!(
+                        "  {} => {} | 0",
+                        path::display(old),
+                        path::display(&change.path)
+                    );
+                    continue;
+                }
                 let rendered = render_diff(change, &left, &right, &options)?;
                 match rendered.stats {
                     Some(stats) => {
@@ -673,10 +794,13 @@ fn cmd_log(
             }
             if !changes.is_empty() {
                 println!(
-                    "  {} files changed, {} insertions(+), {} deletions(-)",
+                    "  {} {} changed, {} {}(+), {} {}(-)",
                     changes.len(),
+                    plural(changes.len(), "file", "files"),
                     insertions,
-                    deletions
+                    plural(insertions, "insertion", "insertions"),
+                    deletions,
+                    plural(deletions, "deletion", "deletions")
                 );
             }
         }
@@ -716,7 +840,7 @@ fn cmd_show(start: &std::path::Path, spec: &str) -> Result<ExitCode> {
             if changes.is_empty() {
                 println!("(no changes)");
             } else {
-                let options = render_options(&repo, None);
+                let options = render_options(&repo, None, None, WhitespaceOptions::default());
                 for change in &changes {
                     let rendered = render_diff(change, &left, &right, &options)?;
                     print!("{}", crate::output::colorize_patch(&rendered.text));

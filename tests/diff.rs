@@ -173,3 +173,159 @@ fn type_change_is_reported_as_t() {
     assert!(text.contains("deleted file mode 100644"), "{text}");
     assert!(text.contains("new file mode 120000"), "{text}");
 }
+
+#[test]
+fn git_style_headers_for_added_and_deleted_files() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("gone.txt", b"gone\n");
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+    std::fs::remove_file(repo.path_of("gone.txt")).unwrap();
+    repo.write("new.txt", b"new\n");
+
+    let output = run(&repo, &["diff", "--", "gone.txt"]);
+    let text = stdout(&output);
+    assert!(text.contains("diff --git a/gone.txt b/gone.txt"), "{text}");
+    assert!(text.contains("deleted file mode 100644"), "{text}");
+    assert!(text.contains("--- a/gone.txt"), "{text}");
+    assert!(text.contains("+++ /dev/null"), "{text}");
+    assert!(text.contains("index "), "{text}");
+
+    let output = run(&repo, &["diff", "--", "new.txt"]);
+    let text = stdout(&output);
+    assert!(text.contains("new file mode 100644"), "{text}");
+    assert!(text.contains("--- /dev/null"), "{text}");
+    assert!(text.contains("+++ b/new.txt"), "{text}");
+}
+
+#[test]
+fn no_newline_at_end_of_file_marker() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"old");
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+    repo.write("a.txt", b"new");
+    let output = run(&repo, &["diff"]);
+    let text = stdout(&output);
+    assert!(text.contains("\\ No newline at end of file"), "{text}");
+}
+
+#[test]
+fn single_line_hunk_header_omits_count() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"old");
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+    repo.write("a.txt", b"new");
+    let output = run(&repo, &["diff"]);
+    assert!(stdout(&output).contains("@@ -1 +1 @@"));
+}
+
+#[test]
+fn exact_renames_are_detected() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("old.txt", b"same\n");
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+    std::fs::rename(repo.path_of("old.txt"), repo.path_of("new.txt")).unwrap();
+
+    let output = run(&repo, &["diff", "--name-status"]);
+    assert_eq!(stdout(&output).trim(), "R100\told.txt\tnew.txt");
+
+    let output = run(&repo, &["diff"]);
+    let text = stdout(&output);
+    assert!(text.contains("diff --git a/old.txt b/new.txt"), "{text}");
+    assert!(text.contains("similarity index 100%"), "{text}");
+    assert!(text.contains("rename from old.txt"), "{text}");
+    assert!(text.contains("rename to new.txt"), "{text}");
+    assert!(!text.contains("--- a/old.txt"), "{text}");
+
+    let output = run(&repo, &["diff", "--stat"]);
+    let text = stdout(&output);
+    assert!(text.contains("old.txt => new.txt | 0"), "{text}");
+    assert!(
+        text.contains("1 file changed, 0 insertions(+), 0 deletions(-)"),
+        "{text}"
+    );
+}
+
+#[test]
+fn whitespace_options_ignore_only_whitespace_changes() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"one two\n");
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+    repo.write("a.txt", b"one  two\n");
+
+    let output = run(&repo, &["diff", "-w"]);
+    assert!(output.status.success());
+    assert!(stdout(&output).is_empty());
+
+    let output = run(&repo, &["diff", "--stat", "-w"]);
+    assert!(stdout(&output).is_empty());
+
+    let output = run(&repo, &["diff", "-w", "--exit-code"]);
+    assert_eq!(output.status.code(), Some(0));
+
+    let output = run(&repo, &["diff", "--name-status", "-w"]);
+    assert!(stdout(&output).contains("M\ta.txt"));
+}
+
+#[test]
+fn histogram_algorithm_is_selectable() {
+    let repo = TestRepo::new();
+    seed(&repo);
+    repo.write("a.txt", b"one\nTHREE\n");
+    let output = run(&repo, &["diff", "--diff-algorithm", "histogram"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&output).contains("+THREE"));
+}
+
+#[test]
+fn rename_name_only_and_path_filter_use_new_path() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write(
+        "old.txt", b"same
+",
+    );
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+    std::fs::rename(repo.path_of("old.txt"), repo.path_of("new.txt")).unwrap();
+
+    let output = run(&repo, &["diff", "--name-only"]);
+    assert_eq!(stdout(&output).trim(), "new.txt");
+
+    let output = run(&repo, &["diff", "--", "old.txt"]);
+    assert!(stdout(&output).contains("rename from old.txt"));
+}
+
+#[test]
+fn space_change_and_eol_options() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"one two\n");
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+    repo.write("a.txt", b"one   two\n");
+
+    let output = run(&repo, &["diff", "-b"]);
+    assert!(stdout(&output).is_empty());
+
+    repo.write("a.txt", b"one two   \n");
+    let output = run(&repo, &["diff", "--ignore-space-at-eol"]);
+    assert!(stdout(&output).is_empty());
+}
+
+#[test]
+fn histogram_can_be_selected_through_config() {
+    let repo = TestRepo::new();
+    seed(&repo);
+    assert!(
+        run(&repo, &["config", "diff.algorithm", "histogram"])
+            .status
+            .success()
+    );
+    repo.write("a.txt", b"one\nTHREE\n");
+    let output = run(&repo, &["diff"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&output).contains("+THREE"));
+}

@@ -161,7 +161,7 @@ fn log_stat_reports_line_counts() {
     assert!(text.contains("M a.txt | 1 +, 1 -"), "{text}");
     assert!(text.contains("A b.txt | 1 +, 0 -"), "{text}");
     assert!(
-        text.contains("2 files changed, 2 insertions(+), 1 deletions(-)"),
+        text.contains("2 files changed, 2 insertions(+), 1 deletion(-)"),
         "{text}"
     );
 }
@@ -187,4 +187,21 @@ fn show_root_commit_is_all_added() {
     let text = stdout(&output);
     assert!(text.contains("new file mode 100644"), "{text}");
     assert!(text.contains("+a"), "{text}");
+}
+
+#[test]
+fn show_and_log_stat_report_renames() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("old.txt", b"same\n");
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+    std::fs::rename(repo.path_of("old.txt"), repo.path_of("new.txt")).unwrap();
+    assert!(run(&repo, &["commit", "-m", "rename"]).status.success());
+
+    let output = run(&repo, &["show", "HEAD"]);
+    assert!(stdout(&output).contains("rename from old.txt"));
+    assert!(stdout(&output).contains("rename to new.txt"));
+
+    let output = run(&repo, &["log", "-n", "1", "--stat"]);
+    assert!(stdout(&output).contains("old.txt => new.txt | 0"));
 }

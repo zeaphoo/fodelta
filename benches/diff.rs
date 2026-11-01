@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use fodelta::diff::text::{DiffAlgorithm, render_unified};
+use fodelta::diff::text::{DiffAlgorithm, WhitespaceOptions, render_unified};
 
 fn bench_text_diff(c: &mut Criterion) {
     let old: String = (0..5000).map(|index| format!("line {index}\n")).collect();
@@ -16,6 +16,7 @@ fn bench_text_diff(c: &mut Criterion) {
                 black_box(new.as_bytes()),
                 black_box(3),
                 DiffAlgorithm::Myers,
+                WhitespaceOptions::default(),
             );
             black_box((text.len(), stats.added, stats.removed));
         });

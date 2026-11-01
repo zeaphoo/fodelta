@@ -67,10 +67,15 @@ pub fn colorize_patch(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+
+    static LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn respects_enabled_flag() {
+        let _guard = LOCK.lock().unwrap();
         set_enabled(false);
         assert_eq!(paint(green(), "x"), "x");
         set_enabled(true);
@@ -80,6 +85,7 @@ mod tests {
 
     #[test]
     fn colorizes_patch_lines() {
+        let _guard = LOCK.lock().unwrap();
         set_enabled(true);
         let text = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n";
         let colored = colorize_patch(text);

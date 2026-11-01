@@ -1,17 +1,19 @@
 //! Line based diffing and unified rendering.
 
-use similar::{Algorithm, DiffOp, capture_diff_slices};
+use similar::{Algorithm, DiffOp, capture_diff_slices, capture_diff_slices_by_key};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffAlgorithm {
     Myers,
     Patience,
+    Histogram,
 }
 
 impl DiffAlgorithm {
     pub fn from_config(value: &str) -> Self {
         match value {
             "patience" => Self::Patience,
+            "histogram" => Self::Histogram,
             _ => Self::Myers,
         }
     }
@@ -20,8 +22,16 @@ impl DiffAlgorithm {
         match self {
             Self::Myers => Algorithm::Myers,
             Self::Patience => Algorithm::Patience,
+            Self::Histogram => Algorithm::Histogram,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WhitespaceOptions {
+    pub ignore_all: bool,
+    pub ignore_change: bool,
+    pub ignore_eol: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -52,12 +62,19 @@ pub fn render_unified(
     new: &[u8],
     context: usize,
     algorithm: DiffAlgorithm,
+    whitespace: WhitespaceOptions,
 ) -> (String, LineStats) {
     let old_text = String::from_utf8_lossy(old);
     let new_text = String::from_utf8_lossy(new);
     let old_lines = split_lines(&old_text);
     let new_lines = split_lines(&new_text);
-    let ops = capture_diff_slices(algorithm.similar(), &old_lines, &new_lines);
+    let ops = if whitespace == WhitespaceOptions::default() {
+        capture_diff_slices(algorithm.similar(), &old_lines, &new_lines)
+    } else {
+        capture_diff_slices_by_key(algorithm.similar(), &old_lines, &new_lines, |line| {
+            normalize_line(line, whitespace)
+        })
+    };
     let (tags, stats) = tags_from_ops(&ops);
 
     let mut out = String::new();
@@ -109,7 +126,9 @@ pub fn render_unified(
             new_positions[range_start] + 1
         };
         out.push_str(&format!(
-            "@@ -{old_start},{old_count} +{new_start},{new_count} @@\n"
+            "@@ -{} +{} @@\n",
+            range(old_start, old_count),
+            range(new_start, new_count)
         ));
         let mut old_cursor = old_positions[range_start];
         for tag in &tags[range_start..range_end] {
@@ -198,6 +217,29 @@ fn push_line(out: &mut String, prefix: char, line: &str) {
     out.push_str(line);
     if !line.ends_with('\n') {
         out.push('\n');
+        out.push_str("\\ No newline at end of file\n");
+    }
+}
+
+fn range(start: usize, count: usize) -> String {
+    if count == 1 {
+        start.to_string()
+    } else {
+        format!("{start},{count}")
+    }
+}
+
+fn normalize_line(line: &str, whitespace: WhitespaceOptions) -> String {
+    if whitespace.ignore_all {
+        line.chars()
+            .filter(|character| !character.is_whitespace())
+            .collect()
+    } else if whitespace.ignore_change {
+        line.split_whitespace().collect::<Vec<_>>().join(" ")
+    } else if whitespace.ignore_eol {
+        line.trim_end().to_string()
+    } else {
+        line.to_string()
     }
 }
 
@@ -230,6 +272,7 @@ mod tests {
             b"one\nTWO\nthree\n",
             3,
             DiffAlgorithm::Myers,
+            WhitespaceOptions::default(),
         );
         assert!(diff.contains("--- a/file.txt"));
         assert!(diff.contains("+++ b/file.txt"));
@@ -248,6 +291,7 @@ mod tests {
             b"one\nTWO\n",
             0,
             DiffAlgorithm::Myers,
+            WhitespaceOptions::default(),
         );
         assert!(!diff.contains(" one"));
         assert!(diff.contains("-two"));
@@ -262,6 +306,7 @@ mod tests {
             b"one\r\nTWO\r\n",
             3,
             DiffAlgorithm::Myers,
+            WhitespaceOptions::default(),
         );
         assert!(diff.contains(" one\r\n"), "{diff:?}");
     }

@@ -81,9 +81,12 @@ impl Config {
                 "core.safety_retention_days must be at least 1".to_string(),
             ));
         }
-        if !matches!(self.diff.algorithm.as_str(), "myers" | "patience") {
+        if !matches!(
+            self.diff.algorithm.as_str(),
+            "myers" | "patience" | "histogram"
+        ) {
             return Err(FodeltaError::Config(
-                "diff.algorithm must be 'myers' or 'patience'".to_string(),
+                "diff.algorithm must be 'myers', 'patience' or 'histogram'".to_string(),
             ));
         }
         if !matches!(self.diff.color.as_str(), "auto" | "always" | "never") {

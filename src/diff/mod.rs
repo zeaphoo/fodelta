@@ -21,6 +21,7 @@ pub enum FileChangeKind {
     Deleted,
     Modified,
     TypeChanged,
+    Renamed,
 }
 
 impl FileChangeKind {
@@ -30,14 +31,20 @@ impl FileChangeKind {
             Self::Deleted => 'D',
             Self::Modified => 'M',
             Self::TypeChanged => 'T',
+            Self::Renamed => 'R',
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct FileChange {
+    /// New path, or the only path for non-rename changes.
     pub path: Vec<u8>,
+    /// Old path for renames.
+    pub old_path: Option<Vec<u8>>,
     pub kind: FileChangeKind,
+    /// 100 for exact renames; `None` for non-renames.
+    pub similarity: Option<u8>,
     pub old: Option<TreeEntryInfo>,
     pub new: Option<TreeEntryInfo>,
 }
@@ -158,13 +165,17 @@ pub fn diff_trees(before: &TreeMap, after: &TreeMap) -> Vec<FileChange> {
         match (before.get(path), after.get(path)) {
             (None, Some(new)) => changes.push(FileChange {
                 path: path.clone(),
+                old_path: None,
                 kind: FileChangeKind::Added,
+                similarity: None,
                 old: None,
                 new: Some(*new),
             }),
             (Some(old), None) => changes.push(FileChange {
                 path: path.clone(),
+                old_path: None,
                 kind: FileChangeKind::Deleted,
+                similarity: None,
                 old: Some(*old),
                 new: None,
             }),
@@ -176,7 +187,9 @@ pub fn diff_trees(before: &TreeMap, after: &TreeMap) -> Vec<FileChange> {
                 };
                 changes.push(FileChange {
                     path: path.clone(),
+                    old_path: None,
                     kind,
+                    similarity: None,
                     old: Some(*old),
                     new: Some(*new),
                 });
@@ -184,7 +197,62 @@ pub fn diff_trees(before: &TreeMap, after: &TreeMap) -> Vec<FileChange> {
             _ => {}
         }
     }
+    detect_exact_renames(&mut changes);
+    changes.sort_by(|a, b| a.path.cmp(&b.path));
     changes
+}
+
+fn detect_exact_renames(changes: &mut Vec<FileChange>) {
+    let added: Vec<usize> = changes
+        .iter()
+        .enumerate()
+        .filter(|(_, change)| change.kind == FileChangeKind::Added)
+        .map(|(index, _)| index)
+        .collect();
+    let deleted: Vec<usize> = changes
+        .iter()
+        .enumerate()
+        .filter(|(_, change)| change.kind == FileChangeKind::Deleted)
+        .map(|(index, _)| index)
+        .collect();
+    if added.is_empty() || deleted.is_empty() {
+        return;
+    }
+
+    let mut used_added = std::collections::BTreeSet::new();
+    let mut used_deleted = std::collections::BTreeSet::new();
+    let mut renames = Vec::new();
+    for add_index in added {
+        let new = changes[add_index].new.expect("added entry has a new side");
+        let Some(&del_index) = deleted.iter().find(|&&index| {
+            !used_deleted.contains(&index)
+                && changes[index].old.expect("deleted entry has old side").oid == new.oid
+        }) else {
+            continue;
+        };
+        used_added.insert(add_index);
+        used_deleted.insert(del_index);
+        renames.push(FileChange {
+            path: changes[add_index].path.clone(),
+            old_path: Some(changes[del_index].path.clone()),
+            kind: FileChangeKind::Renamed,
+            similarity: Some(100),
+            old: changes[del_index].old,
+            new: Some(new),
+        });
+    }
+    if renames.is_empty() {
+        return;
+    }
+
+    let mut remaining = Vec::new();
+    for (index, change) in changes.drain(..).enumerate() {
+        if !used_added.contains(&index) && !used_deleted.contains(&index) {
+            remaining.push(change);
+        }
+    }
+    remaining.extend(renames);
+    *changes = remaining;
 }
 
 const fn mode_kind(mode: u32) -> u8 {

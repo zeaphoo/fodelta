@@ -90,6 +90,21 @@ fodelta diff --exit-code
 - `--exit-code`：有差异返回 1，无差异返回 0；其他错误返回 2。
 - 路径过滤使用 `-- <path>`，按路径组件前缀匹配，不支持 glob。
 
+Git 风格输出与选项：
+
+- 文件头包含 `diff --git a/... b/...`、`index <old>..<new> <mode>`。
+- 新增/删除文件使用 `--- /dev/null` / `+++ /dev/null`。
+- 最后一行没有换行时输出 `\ No newline at end of file`。
+- 单行 hunk 省略 `,1`，例如 `@@ -1 +1 @@`。
+- 内容完全相同的删除+新增会识别为精确重命名：`R100`、`similarity index 100%`、
+  `rename from` / `rename to`，`--stat` 显示 `old => new | 0`。
+- 类型变化（文件 ↔ 符号链接）的补丁拆成 deleted + new 两块，`--name-status` 仍显示 `T`。
+- 支持 `-w/--ignore-all-space`、`-b/--ignore-space-change`、
+  `--ignore-space-at-eol`；仅空白差异时 patch/stat 为空、`--exit-code` 返回 0，
+  但 `--name-status` 仍会列出该文件（与 git 一致）。
+- `--diff-algorithm myers|patience|histogram`；也可配置 `diff.algorithm`。
+- 重命名检测目前只覆盖内容完全相同的精确重命名；内容有修改的移动仍显示为 D + A。
+
 ## restore
 
 ```bash

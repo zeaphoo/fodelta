@@ -50,8 +50,10 @@
 - `diff <rev>`：版本 ↔ 工作区
 - `diff <rev1> <rev2>`：版本 ↔ 版本
 
-树级比较按路径归并；文本使用 `similar`（Myers/Patience）生成 unified diff；二进制按
-NUL/UTF-8 判定，只输出提示。
+树级比较按路径归并，并对内容完全相同的删除+新增做精确重命名识别（R100）。文本使用
+`similar`（Myers/Patience/Histogram）生成 Git 风格 unified diff：`diff --git`、`index`、
+`/dev/null`、`\ No newline at end of file`、单行 hunk 省略 `,1`。二进制按 NUL/UTF-8 判定，
+只输出提示；`-w`/`-b`/`--ignore-space-at-eol` 通过规范化比较键实现空白忽略。
 
 ## 回退与安全
 
