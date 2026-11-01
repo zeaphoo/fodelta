@@ -234,6 +234,15 @@ mod tests {
     }
 
     #[test]
+    fn does_not_read_ignore_files() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), ".ignore", b"secret.txt\n");
+        write(dir.path(), "secret.txt", b"x");
+        let entries = scan(dir.path(), &BTreeSet::new()).unwrap();
+        assert!(entries.iter().any(|entry| entry.path == b"secret.txt"));
+    }
+
+    #[test]
     fn includes_tracked_files_even_when_ignored() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), ".gitignore", b"*.log\n");

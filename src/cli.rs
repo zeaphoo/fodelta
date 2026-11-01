@@ -382,6 +382,9 @@ fn cmd_rollback(
 ) -> Result<ExitCode> {
     let repo = Repository::open(start)?;
     let target = crate::history::resolve(&repo, rev)?;
+    let display_message = message
+        .clone()
+        .unwrap_or_else(|| format!("rollback to {}", target.short()));
     let outcome = rollback_history(
         &repo,
         &RollbackOptions {
@@ -392,7 +395,7 @@ fn cmd_rollback(
     )?;
 
     match outcome.commit {
-        Some(oid) => println!("[main {}] rollback to {}", oid.short(), target.short()),
+        Some(oid) => println!("[main {}] {display_message}", oid.short()),
         None => println!("nothing to rollback"),
     }
     if let Some(safety) = outcome.safety {

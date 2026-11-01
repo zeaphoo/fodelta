@@ -7,7 +7,6 @@ use crate::history::tree_map::{TreeMap, flatten_tree};
 use crate::odb::{Commit, ObjectId};
 use crate::repo::Repository;
 use crate::util::path;
-use crate::worktree::stat_cache::StatCache;
 use crate::{FodeltaError, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,50 +116,4 @@ pub fn diff_maps(before: &TreeMap, after: &TreeMap) -> Vec<(Vec<u8>, ChangeKind)
         }
     }
     changes
-}
-
-/// Load a commit object and its tree map.
-pub fn commit_tree(repo: &Repository, oid: ObjectId) -> Result<(Commit, TreeMap)> {
-    let commit = read_commit(repo, oid)?;
-    let store = repo.store();
-    let tree = flatten_tree(&store, commit.tree)?;
-    Ok((commit, tree))
-}
-
-/// Read a blob from a revision's tree.
-pub fn blob_at(repo: &Repository, commit: &Commit, relative: &[u8]) -> Result<Option<Vec<u8>>> {
-    let store = repo.store();
-    let tree = flatten_tree(&store, commit.tree)?;
-    let Some(info) = tree.get(relative) else {
-        return Ok(None);
-    };
-    Ok(Some(store.read_blob(info.oid)?))
-}
-
-/// Refresh the stat cache after an operation that rewrote the working tree.
-pub fn refresh_stat_cache(
-    repo: &Repository,
-    entries: &[crate::worktree::WorktreeEntry],
-) -> Result<()> {
-    let cache_path = repo.fodelta.join("stat-cache");
-    let mut cache = StatCache::load(&cache_path);
-    cache.clear();
-    let store = repo.store();
-    for entry in entries {
-        let oid = match entry.kind {
-            crate::worktree::EntryKind::Symlink => {
-                let target =
-                    crate::worktree::scan::symlink_target_bytes(&entry.absolute(&repo.root))?;
-                crate::odb::blob_hash(&target)
-            }
-            crate::worktree::EntryKind::File => store.hash_file(&entry.absolute(&repo.root))?,
-        };
-        cache.insert(entry.path.clone(), entry.stat, oid);
-    }
-    let _ = cache.save(&cache_path);
-    Ok(())
-}
-
-pub fn unborn_error() -> FodeltaError {
-    FodeltaError::UnbornHead
 }

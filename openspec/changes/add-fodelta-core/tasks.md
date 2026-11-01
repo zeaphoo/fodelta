@@ -71,10 +71,10 @@
 
 ## 8. 集成验收
 
-- [ ] 8.1 编写端到端脚本覆盖完整生命周期（init → status → commit 全量/选择性 → log/show → diff 三模式 → restore → rollback → safety → gc → fsck）；验证：脚本在 Linux/macOS 通过，退出码为 0
-- [ ] 8.2 验证规格覆盖：逐条对照 `specs/*/spec.md` 的 Scenario 建立测试映射表；验证：每个 Scenario 至少有一个自动化测试或明确的手工验收记录
-- [ ] 8.3 性能验收：在 2 万文件合成目录上实测 `status`/`commit`/`log`/选择性提交，与设计目标对比；验证：数值记录在 `docs/benchmarks.md`，超标项有后续任务
-- [ ] 8.4 安全验收：路径穿越、符号链接逃逸、恶意 tree/blob 输入；验证：`cargo test security` 全部通过
+- [x] 8.1 编写端到端脚本覆盖完整生命周期（init → status → commit 全量/选择性 → log/show → diff 三模式 → restore → rollback → safety → gc → fsck）；验证：脚本在 Linux/macOS 通过，退出码为 0
+- [x] 8.2 验证规格覆盖：逐条对照 `specs/*/spec.md` 的 Scenario 建立测试映射表；验证：每个 Scenario 至少有一个自动化测试或明确的手工验收记录
+- [x] 8.3 性能验收：在 2 万文件合成目录上实测 `status`/`commit`/`log`/选择性提交，与设计目标对比；验证：数值记录在 `docs/benchmarks.md`，超标项有后续任务
+- [x] 8.4 安全验收：路径穿越、符号链接逃逸、恶意 tree/blob 输入；验证：`cargo test security` 全部通过
 
 ## Workflow follow-up
 

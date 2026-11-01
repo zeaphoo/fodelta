@@ -1,6 +1,5 @@
 //! Inspect a commit or a blob inside a revision.
 
-use crate::history::log::{ChangeKind, changes_for_commit};
 use crate::history::revparse::{read_commit, resolve};
 use crate::odb::{Commit, ObjectId};
 use crate::repo::Repository;
@@ -11,7 +10,6 @@ use crate::{FodeltaError, Result};
 pub struct CommitView {
     pub oid: ObjectId,
     pub commit: Commit,
-    pub changes: Vec<(Vec<u8>, ChangeKind)>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,10 +46,5 @@ pub fn show(repo: &Repository, spec: &str) -> Result<ShowOutput> {
         return Ok(ShowOutput::Blob(store.read_blob(info.oid)?));
     }
 
-    let changes = changes_for_commit(repo, &commit)?;
-    Ok(ShowOutput::Commit(CommitView {
-        oid,
-        commit,
-        changes,
-    }))
+    Ok(ShowOutput::Commit(CommitView { oid, commit }))
 }

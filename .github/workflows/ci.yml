@@ -30,3 +30,11 @@ jobs:
 
       - name: Test
         run: cargo test --all-targets
+
+      - name: Build release (Linux)
+        if: runner.os == 'Linux'
+        run: cargo build --release
+
+      - name: End-to-end (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/e2e.sh

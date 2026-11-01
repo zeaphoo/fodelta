@@ -153,6 +153,37 @@ mod tests {
     }
 
     #[test]
+    fn large_inline_files_are_treated_as_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = seed(dir.path());
+        let store = repo.store();
+        let oid = store.write_blob(b"hello\n").unwrap();
+        let change = FileChange {
+            path: b"big.txt".to_vec(),
+            kind: FileChangeKind::Modified,
+            old: Some(info(MODE_FILE, oid)),
+            new: Some(info(MODE_FILE, oid)),
+        };
+        let side = DiffSide {
+            repo: &repo,
+            map: Default::default(),
+            kind: SideKind::Store,
+        };
+        let rendered = render(
+            &change,
+            &side,
+            &side,
+            &RenderOptions {
+                context: 3,
+                algorithm: DiffAlgorithm::Myers,
+                max_inline_bytes: 2,
+            },
+        )
+        .unwrap();
+        assert!(rendered.binary);
+    }
+
+    #[test]
     fn binary_and_type_changes_are_reported() {
         let dir = tempfile::tempdir().unwrap();
         let repo = seed(dir.path());

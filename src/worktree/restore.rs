@@ -2,7 +2,7 @@
 
 use std::fs::{self, File};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::diff::worktree_map;
 use crate::history::revparse::read_commit;
@@ -259,21 +259,4 @@ fn set_mode(target: &Path, mode: u32) -> Result<()> {
 #[cfg(not(unix))]
 fn set_mode(_target: &Path, _mode: u32) -> Result<()> {
     Ok(())
-}
-
-pub fn source_label(repo: &Repository, source: Option<ObjectId>) -> Result<String> {
-    match source {
-        Some(oid) => Ok(format!("revision {}", oid.short())),
-        None => {
-            let _ = repo;
-            Ok("HEAD".to_string())
-        }
-    }
-}
-
-pub fn current_paths(repo: &Repository) -> Result<Vec<PathBuf>> {
-    Ok(worktree_map(repo)?
-        .keys()
-        .map(|path| path::bytes_to_path(path))
-        .collect())
 }

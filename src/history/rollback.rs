@@ -1,12 +1,12 @@
 //! Append-only rollback: create a new commit whose tree equals a target
 //! revision, then synchronize the working tree to it.
 
+use crate::Result;
 use crate::history::revparse::read_commit;
 use crate::history::tree_map::{TreeMap, flatten_tree, head_tree};
 use crate::odb::{Commit, ObjectId, ObjectKind};
 use crate::repo::{MAIN_REF, Repository, refs};
 use crate::worktree::restore::{clear_cache, sync_worktree};
-use crate::{FodeltaError, Result};
 
 #[derive(Debug, Clone)]
 pub struct RollbackOptions {
@@ -111,10 +111,4 @@ fn count_changes(before: &TreeMap, after: &TreeMap) -> usize {
         }
     }
     changed
-}
-
-pub fn nothing_to_rollback() -> FodeltaError {
-    FodeltaError::NothingToRollback {
-        rev: "HEAD".to_string(),
-    }
 }

@@ -155,3 +155,21 @@ fn no_safety_flag_warns() {
     assert!(output.status.success());
     assert!(stderr(&output).contains("no safety snapshot"));
 }
+
+#[cfg(unix)]
+#[test]
+fn restore_recreates_symlinks() {
+    let repo = TestRepo::new();
+    init(&repo);
+    std::os::unix::fs::symlink("target", repo.path_of("link")).unwrap();
+    assert!(run(&repo, &["commit", "-m", "link"]).status.success());
+    std::fs::remove_file(repo.path_of("link")).unwrap();
+    let output = run(&repo, &["restore", "--", "link"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let metadata = std::fs::symlink_metadata(repo.path_of("link")).unwrap();
+    assert!(metadata.file_type().is_symlink());
+    assert_eq!(
+        std::fs::read_link(repo.path_of("link")).unwrap(),
+        std::path::Path::new("target")
+    );
+}
