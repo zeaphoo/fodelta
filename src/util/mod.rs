@@ -2,4 +2,5 @@
 
 pub mod atomic;
 pub mod hex;
+pub mod path;
 pub mod time;

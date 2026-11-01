@@ -6,6 +6,6 @@ pub mod store;
 pub mod tree;
 
 pub use commit::{Author, Commit};
-pub use object::{ObjectId, ObjectKind};
+pub use object::{ObjectId, ObjectKind, blob_hash};
 pub use store::ObjectStore;
 pub use tree::{MODE_EXEC, MODE_FILE, MODE_SYMLINK, MODE_TREE, Tree, TreeEntry};

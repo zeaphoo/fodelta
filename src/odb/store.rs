@@ -106,6 +106,24 @@ impl ObjectStore {
         object::decode(&bytes)
     }
 
+    /// Hash a file without writing an object. Used by `status` and `diff`.
+    pub fn hash_file(&self, source: &Path) -> Result<ObjectId> {
+        let metadata = fs::metadata(source)?;
+        let header = format!("blob {}\n", metadata.len());
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(header.as_bytes());
+        let mut reader = BufReader::new(File::open(source)?);
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read = reader.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        Ok(ObjectId::from_bytes(*hasher.finalize().as_bytes()))
+    }
+
     pub fn read_blob(&self, oid: ObjectId) -> Result<Vec<u8>> {
         let (kind, payload) = self.read(oid)?;
         if kind != ObjectKind::Blob {

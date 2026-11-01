@@ -10,9 +10,12 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 pub mod cli;
+pub mod history;
+pub mod ignore;
 pub mod odb;
 pub mod repo;
 pub mod util;
+pub mod worktree;
 
 /// Convenient result alias used across the library.
 pub type Result<T> = std::result::Result<T, FodeltaError>;
@@ -58,7 +61,7 @@ pub enum FodeltaError {
     #[error("path escapes repository: {path}")]
     PathEscapes { path: PathBuf },
 
-    #[error("path is ignored: {path}")]
+    #[error("path is ignored: {path} (add '!{path}' to .gitignore to track it)")]
     PathIgnored { path: PathBuf },
 
     #[error("path did not match any files: {path}")]
@@ -69,6 +72,9 @@ pub enum FodeltaError {
 
     #[error("nothing to commit (working tree matches HEAD)")]
     NothingToCommit,
+
+    #[error("commit message must not be empty")]
+    EmptyCommitMessage,
 
     #[error("nothing to rollback (HEAD already matches {rev})")]
     NothingToRollback { rev: String },
@@ -84,6 +90,9 @@ pub enum FodeltaError {
 
     #[error("HEAD does not point to a commit yet")]
     UnbornHead,
+
+    #[error("the current branch has no commits yet")]
+    NoCommits,
 
     #[error("invalid configuration: {0}")]
     Config(String),

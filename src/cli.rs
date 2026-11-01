@@ -7,7 +7,12 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+use crate::history::{CommitOptions, LogOptions, ShowOutput, create_commit, log_entries, show};
+use crate::ignore as ignore_rules;
 use crate::repo::Repository;
+use crate::util::path;
+use crate::util::time;
+use crate::worktree::compute_status;
 use crate::{ExitCode, FodeltaError, Result};
 
 /// A local, single-branch directory version control tool.
@@ -250,15 +255,26 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::Success)
         }
         Command::Config { key, value } => cmd_config(&start, key, value),
-        Command::Status { .. } => Err(FodeltaError::NotImplemented("status")),
-        Command::Commit { .. } => Err(FodeltaError::NotImplemented("commit")),
-        Command::Log { .. } => Err(FodeltaError::NotImplemented("log")),
-        Command::Show { .. } => Err(FodeltaError::NotImplemented("show")),
+        Command::Status { ignored } => cmd_status(&start, ignored),
+        Command::Commit {
+            message,
+            allow_empty,
+            allow_large_files,
+            paths,
+        } => cmd_commit(&start, message, allow_empty, allow_large_files, &paths),
+        Command::Log {
+            oneline,
+            limit,
+            stat,
+            reverse,
+            paths,
+        } => cmd_log(&start, oneline, limit, stat, reverse, &paths),
+        Command::Show { rev } => cmd_show(&start, &rev),
         Command::Diff { .. } => Err(FodeltaError::NotImplemented("diff")),
         Command::Restore { .. } => Err(FodeltaError::NotImplemented("restore")),
         Command::Rollback { .. } => Err(FodeltaError::NotImplemented("rollback")),
         Command::Safety => Err(FodeltaError::NotImplemented("safety")),
-        Command::Ignore { .. } => Err(FodeltaError::NotImplemented("ignore")),
+        Command::Ignore { command } => cmd_ignore(&start, command),
         Command::Gc { .. } => Err(FodeltaError::NotImplemented("gc")),
         Command::Fsck { .. } => Err(FodeltaError::NotImplemented("fsck")),
     }
@@ -272,6 +288,224 @@ fn resolve_start(cwd: &std::path::Path) -> Result<PathBuf> {
         base.join(cwd)
     };
     Ok(path.canonicalize()?)
+}
+
+fn cmd_log(
+    start: &std::path::Path,
+    oneline: bool,
+    limit: Option<usize>,
+    stat: bool,
+    reverse: bool,
+    paths: &[PathBuf],
+) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    let specs = resolve_specs(&repo, start, paths)?;
+    let entries = log_entries(
+        &repo,
+        &LogOptions {
+            limit,
+            reverse,
+            stat,
+            paths: specs,
+        },
+    )?;
+
+    for (index, entry) in entries.iter().enumerate() {
+        if index > 0 && !oneline {
+            println!();
+        }
+        if oneline {
+            let subject = entry.commit.message.lines().next().unwrap_or("");
+            println!("{} {subject}", entry.oid.short());
+        } else {
+            println!("commit {}", entry.oid);
+            println!(
+                "Author: {} <{}>",
+                entry.commit.author.name, entry.commit.author.email
+            );
+            println!(
+                "Date:   {}",
+                time::format_timestamp(
+                    entry.commit.author.timestamp,
+                    entry.commit.author.offset_minutes
+                )
+            );
+            println!();
+            for line in entry.commit.message.lines() {
+                println!("    {line}");
+            }
+        }
+        if stat {
+            if !entry.changes.is_empty() {
+                println!();
+            }
+            for (path, kind) in &entry.changes {
+                println!("  {} {}", kind.letter(), path::display(path));
+            }
+            if !entry.changes.is_empty() {
+                println!("  {} file(s) changed", entry.changes.len());
+            }
+        }
+    }
+    Ok(ExitCode::Success)
+}
+
+fn cmd_show(start: &std::path::Path, spec: &str) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    match show(&repo, spec)? {
+        ShowOutput::Blob(bytes) => {
+            use std::io::Write;
+            let mut stdout = std::io::stdout().lock();
+            stdout.write_all(&bytes)?;
+            stdout.flush()?;
+        }
+        ShowOutput::Commit(view) => {
+            println!("commit {}", view.oid);
+            println!(
+                "Author: {} <{}>",
+                view.commit.author.name, view.commit.author.email
+            );
+            println!(
+                "Date:   {}",
+                time::format_timestamp(
+                    view.commit.author.timestamp,
+                    view.commit.author.offset_minutes
+                )
+            );
+            println!();
+            for line in view.commit.message.lines() {
+                println!("    {line}");
+            }
+            println!();
+            if view.changes.is_empty() {
+                println!("(no changes)");
+            } else {
+                for (path, kind) in &view.changes {
+                    println!("{} {}", kind.letter(), path::display(path));
+                }
+            }
+        }
+    }
+    Ok(ExitCode::Success)
+}
+
+fn cmd_commit(
+    start: &std::path::Path,
+    message: String,
+    allow_empty: bool,
+    allow_large_files: bool,
+    paths: &[PathBuf],
+) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    let specs = resolve_specs(&repo, start, paths)?;
+    let outcome = create_commit(
+        &repo,
+        &CommitOptions {
+            message: message.clone(),
+            allow_empty,
+            allow_large_files,
+            paths: specs,
+        },
+    )?;
+
+    let subject = message.lines().next().unwrap_or("");
+    println!("[main {}] {subject}", outcome.oid.short());
+    if outcome.changed > 0 {
+        println!(" {} file(s) changed", outcome.changed);
+    }
+    if outcome.remaining > 0 {
+        println!(" {} change(s) remain uncommitted", outcome.remaining);
+    }
+    Ok(ExitCode::Success)
+}
+
+fn resolve_specs(
+    repo: &Repository,
+    start: &std::path::Path,
+    paths: &[PathBuf],
+) -> Result<Vec<Vec<u8>>> {
+    let prefix = start
+        .strip_prefix(&repo.root)
+        .unwrap_or_else(|_| std::path::Path::new(""));
+    let mut specs = Vec::with_capacity(paths.len());
+    for input in paths {
+        let normalized = path::normalize(input)?;
+        let full = prefix.join(normalized);
+        specs.push(path::path_to_bytes(&full));
+    }
+    Ok(specs)
+}
+
+fn cmd_status(start: &std::path::Path, include_ignored: bool) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    let report = compute_status(&repo, include_ignored)?;
+
+    if report.unborn {
+        println!("no commits yet");
+    }
+    if report.total_changes() == 0 {
+        println!("working tree clean");
+    } else {
+        println!("Changes not committed:");
+        for entry in &report.added {
+            println!("  new file: {}", path::display(entry));
+        }
+        for entry in &report.modified {
+            println!("  modified: {}", path::display(entry));
+        }
+        for entry in &report.deleted {
+            println!("  deleted:  {}", path::display(entry));
+        }
+        println!();
+        println!("{} change(s)", report.total_changes());
+    }
+
+    if include_ignored && !report.ignored.is_empty() {
+        println!();
+        println!("Ignored files:");
+        for entry in &report.ignored {
+            println!("  {}", path::display(entry));
+        }
+    }
+
+    for warning in &report.warnings {
+        eprintln!("warning: {warning}");
+    }
+    Ok(ExitCode::Success)
+}
+
+fn cmd_ignore(start: &std::path::Path, command: IgnoreCommand) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    match command {
+        IgnoreCommand::List => {
+            for file in ignore_rules::files(&repo.root)? {
+                println!("{}:", path::display(&path::path_to_bytes(&file)));
+                for rule in ignore_rules::read_rules(&repo.root.join(&file))? {
+                    println!("  {rule}");
+                }
+            }
+        }
+        IgnoreCommand::Check { path: input } => {
+            let normalized = path::normalize(&input)?;
+            let relative = path::path_to_bytes(&normalized);
+            let verdict = ignore_rules::check(&repo.root, &relative)?;
+            if verdict.ignored {
+                println!("ignored");
+            } else {
+                println!("not ignored");
+            }
+            if let Some(pattern) = &verdict.pattern {
+                println!("  pattern: {pattern}");
+            }
+            if let Some(source) = &verdict.source {
+                println!("  source: {}", source.display());
+            }
+            if verdict.builtin {
+                println!("  source: built-in");
+            }
+        }
+    }
+    Ok(ExitCode::Success)
 }
 
 fn cmd_config(

@@ -187,6 +187,11 @@ pub fn hash(bytes: &[u8]) -> ObjectId {
     ObjectId::from_bytes(*blake3::hash(bytes).as_bytes())
 }
 
+/// Hash an in-memory blob without writing it.
+pub fn blob_hash(payload: &[u8]) -> ObjectId {
+    hash(&encode(ObjectKind::Blob, payload))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
