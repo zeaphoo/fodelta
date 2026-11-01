@@ -13,6 +13,7 @@ pub mod cli;
 pub mod diff;
 pub mod history;
 pub mod ignore;
+pub mod maintenance;
 pub mod odb;
 pub mod repo;
 pub mod safety;

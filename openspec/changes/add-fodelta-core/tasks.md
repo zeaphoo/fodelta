@@ -62,12 +62,12 @@
 
 ## 7. 维护、发布与文档
 
-- [ ] 7.1 实现 `gc`：可达性标记（HEAD 祖先链 + 保留期内 safety）、`prune_age_days`、`--dry-run` 统计；验证：无引用对象在保留期后删除，安全快照在期内保留，`fsck` 通过
-- [ ] 7.2 实现 `fsck`：引用/父链/树结构/blob 哈希校验，`--full` 全量扫描，dangling 统计与损坏报告；验证：篡改 blob 后报告 `corrupt object` 并非 0 退出
-- [ ] 7.3 添加崩溃注入测试（提交中断、临时文件残留、锁进程被杀、rollback 中断）；验证：中断后仓库可打开，`fsck` 通过，重跑 rollback 收敛
-- [ ] 7.4 添加 criterion 基准（status/commit/commit 选择性/log/diff）并记录 2 万文件场景数值；验证：`cargo bench` 可运行，结果写入 `docs/benchmarks.md`
-- [ ] 7.5 完善发布配置：release profile、shell completion、`cargo install` 说明、musl 构建脚本；验证：`cargo build --release` 产物可运行，completion 输出非空
-- [ ] 7.6 完成 README（定位、安装、5 分钟上手、与 git/rustory 的差异、无 reset/merge 的设计取舍）与 `docs/architecture.md`；验证：新用户按 README 完成 init/commit（全量与选择性）/diff/rollback
+- [x] 7.1 实现 `gc`：可达性标记（HEAD 祖先链 + 保留期内 safety）、`prune_age_days`、`--dry-run` 统计；验证：无引用对象在保留期后删除，安全快照在期内保留，`fsck` 通过
+- [x] 7.2 实现 `fsck`：引用/父链/树结构/blob 哈希校验，`--full` 全量扫描，dangling 统计与损坏报告；验证：篡改 blob 后报告 `corrupt object` 并非 0 退出
+- [x] 7.3 添加崩溃注入测试（提交中断、临时文件残留、锁进程被杀、rollback 中断）；验证：中断后仓库可打开，`fsck` 通过，重跑 rollback 收敛
+- [x] 7.4 添加 criterion 基准（status/commit/commit 选择性/log/diff）并记录 2 万文件场景数值；验证：`cargo bench` 可运行，结果写入 `docs/benchmarks.md`
+- [x] 7.5 完善发布配置：release profile、shell completion、`cargo install` 说明、musl 构建脚本；验证：`cargo build --release` 产物可运行，completion 输出非空
+- [x] 7.6 完成 README（定位、安装、5 分钟上手、与 git/rustory 的差异、无 reset/merge 的设计取舍）与 `docs/architecture.md`；验证：新用户按 README 完成 init/commit（全量与选择性）/diff/rollback
 
 ## 8. 集成验收
 

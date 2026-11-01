@@ -15,6 +15,7 @@ anyhow = "1"
 blake3 = "1.8"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
+clap_complete = "4"
 ignore = "0.4"
 indicatif = "0.18"
 rayon = "1.12"
@@ -30,6 +31,14 @@ criterion = "0.8"
 predicates = "3"
 proptest = "1"
 tempfile = "3"
+
+[[bench]]
+name = "diff"
+harness = false
+
+[[bench]]
+name = "status"
+harness = false
 
 [profile.release]
 opt-level = 3

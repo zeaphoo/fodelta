@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 use crate::diff::render::{RenderOptions, render as render_diff};
 use crate::diff::{
@@ -16,6 +16,7 @@ use crate::history::{
     log_entries, read_commit, rollback as rollback_history, show,
 };
 use crate::ignore as ignore_rules;
+use crate::maintenance::{fsck as fsck_repo, gc as gc_repo};
 use crate::repo::Repository;
 use crate::safety as safety_store;
 use crate::util::path;
@@ -214,6 +215,13 @@ pub enum Command {
         full: bool,
     },
 
+    /// Generate shell completions (hidden helper command).
+    #[command(hide = true)]
+    Completion {
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+
     /// Read or write repository configuration.
     Config {
         #[arg(value_name = "KEY")]
@@ -310,8 +318,13 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
         } => cmd_rollback(&start, &rev, message, no_safety),
         Command::Safety => cmd_safety(&start),
         Command::Ignore { command } => cmd_ignore(&start, command),
-        Command::Gc { .. } => Err(FodeltaError::NotImplemented("gc")),
-        Command::Fsck { .. } => Err(FodeltaError::NotImplemented("fsck")),
+        Command::Completion { shell } => {
+            let mut command = Cli::command();
+            clap_complete::generate(shell, &mut command, "fodelta", &mut std::io::stdout());
+            Ok(ExitCode::Success)
+        }
+        Command::Gc { dry_run } => cmd_gc(&start, dry_run),
+        Command::Fsck { full } => cmd_fsck(&start, full),
     }
 }
 
@@ -396,6 +409,43 @@ fn cmd_rollback(
         }
     }
     Ok(ExitCode::Success)
+}
+
+fn cmd_gc(start: &std::path::Path, dry_run: bool) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    let outcome = gc_repo(&repo, dry_run)?;
+    println!("reachable objects: {}", outcome.reachable);
+    println!("dangling objects:  {}", outcome.dangling);
+    if dry_run {
+        println!(
+            "would remove: {} object(s), {} byte(s)",
+            outcome.removed, outcome.bytes
+        );
+    } else {
+        println!(
+            "removed: {} object(s), {} byte(s)",
+            outcome.removed, outcome.bytes
+        );
+    }
+    Ok(ExitCode::Success)
+}
+
+fn cmd_fsck(start: &std::path::Path, full: bool) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    let report = fsck_repo(&repo, full)?;
+    println!(
+        "checked {} object(s), {} root(s), {} dangling",
+        report.checked, report.roots, report.dangling
+    );
+    for problem in &report.problems {
+        eprintln!("fsck: {problem}");
+    }
+    if report.is_healthy() {
+        Ok(ExitCode::Success)
+    } else {
+        eprintln!("fsck: {} problem(s) found", report.problems.len());
+        Ok(ExitCode::Error)
+    }
 }
 
 fn cmd_safety(start: &std::path::Path) -> Result<ExitCode> {
