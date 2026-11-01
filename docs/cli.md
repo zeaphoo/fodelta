@@ -130,6 +130,20 @@ fodelta rollback HEAD                # 干净时 no-op；脏时仅同步工作�
 - 恢复方式：`fodelta safety` 找到短哈希，然后 `fodelta restore <safety-id> --delete`。
 - safety 快照默认保留 `core.safety_retention_days`（30 天），`gc` 会裁剪过期记录。
 
+### rollback 之后继续提交
+
+回滚不是从旧提交拉分支，也不会删除旧历史，而是追加一个“树等于目标版本”的提交：
+
+```text
+c1 <- c2 <- c3 <- R(rollback c1) <- C(修改后提交)
+```
+
+- `R` 的父提交是 rollback 前的 tip（示例中是 `c3`），所以 `HEAD~1 = R`、`HEAD~2 = c3`、
+  `HEAD~3 = c2`、`HEAD~4 = c1`。
+- 之后提交的 `C` 的树 = `c1` 的树 + 新修改。
+- 想比较“回到 c1 后改了什么”，用 `fodelta diff <c1> HEAD`，不要用 `HEAD~2`。
+- `c2`、`c3` 仍然是 `R` 的祖先，`log` 能看到，`gc` 不会回收。
+
 ## safety
 
 ```bash

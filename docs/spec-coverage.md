@@ -1,6 +1,6 @@
 # 规格覆盖
 
-当前共 175 个测试（`cargo test --all-targets`）。测试分布：
+当前共 176 个测试（`cargo test --all-targets`）。测试分布：
 
 | 能力 | Requirement | Scenario | 主要测试 |
 |------|-------------|----------|----------|
@@ -48,5 +48,6 @@
 - ignored 文件覆盖：`tests/restore_rollback.rs` 验证被 ignored 的未跟踪文件在 rollback/restore
   覆盖前进入 safety，且可恢复。
 - 文件/目录类型变化：`tests/commit.rs` 覆盖 file→dir、dir→file；目录冲突时 rollback 拒绝执行。
+- 回滚后继续提交：`tests/restore_rollback.rs` 验证线性历史、`HEAD~N` 位置与 `diff c1 HEAD` 语义。
 
 以上手工项与自动化测试共同覆盖 43 条 Requirement / 116 个 Scenario。

@@ -414,7 +414,10 @@ fn cmd_rollback(
     )?;
 
     match outcome.commit {
-        Some(oid) => println!("[main {}] {display_message}", oid.short()),
+        Some(oid) => {
+            println!("[main {}] {display_message}", oid.short());
+            println!(" note: rollback is append-only; previous tip is HEAD~1");
+        }
         None => println!("nothing to rollback"),
     }
     if let Some(safety) = outcome.safety {

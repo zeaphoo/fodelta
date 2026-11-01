@@ -291,3 +291,45 @@ fn restore_captures_ignored_collision_in_safety() {
     assert_eq!(output.stdout, b"secret-v2");
     assert_eq!(repo.read("secret.env"), b"secret-v1");
 }
+
+#[test]
+fn rollback_then_commit_keeps_linear_history() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"v1");
+    assert!(run(&repo, &["commit", "-m", "c1"]).status.success());
+    repo.write("a.txt", b"v2");
+    assert!(run(&repo, &["commit", "-m", "c2"]).status.success());
+    repo.write("a.txt", b"v3");
+    repo.write("b.txt", b"b3");
+    assert!(run(&repo, &["commit", "-m", "c3"]).status.success());
+
+    let output = run(&repo, &["rollback", "HEAD~2"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&output).contains("previous tip is HEAD~1"));
+
+    repo.write("a.txt", b"v1-edited");
+    repo.write("c.txt", b"new");
+    assert!(
+        run(&repo, &["commit", "-m", "after rollback"])
+            .status
+            .success()
+    );
+
+    let log = stdout(&run(&repo, &["log", "--oneline"]));
+    let lines: Vec<&str> = log.lines().collect();
+    assert_eq!(lines.len(), 5, "{log}");
+    assert!(lines[0].contains("after rollback"), "{log}");
+    assert!(lines[1].contains("rollback to"), "{log}");
+    assert!(lines[2].contains("c3"), "{log}");
+    assert!(lines[3].contains("c2"), "{log}");
+    assert!(lines[4].contains("c1"), "{log}");
+
+    assert!(stdout(&run(&repo, &["show", "HEAD~2"])).contains("c3"));
+    assert!(stdout(&run(&repo, &["show", "HEAD~4"])).contains("c1"));
+
+    let diff = stdout(&run(&repo, &["diff", "HEAD~4", "HEAD"]));
+    assert!(diff.contains("+v1-edited"), "{diff}");
+    assert!(diff.contains("+new"), "{diff}");
+    assert!(!diff.contains("b/b.txt"), "{diff}");
+}
