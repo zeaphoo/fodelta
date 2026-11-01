@@ -2,12 +2,12 @@
 
 ## 1. 脚手架与基础
 
-- [ ] 1.1 创建 `fodelta` crate（lib + bin，edition 2024，MSRV 1.89），配置 `[profile.release]`；验证：`cargo build` 成功且 `target/debug/fodelta --version` 输出版本号
-- [ ] 1.2 加入运行期与开发依赖（clap、blake3、zstd、ignore、similar、toml、serde、chrono、rayon、thiserror、anyhow、anstream、anstyle、indicatif；dev：assert_cmd、predicates、tempfile、proptest、criterion；不引入 diffy）；验证：`cargo build --all-targets` 通过且 `Cargo.lock` 被提交
-- [ ] 1.3 搭建 CLI 骨架：13 个子命令、全局 `-C` / `--color` / `--jobs` / `--quiet`、帮助文本；验证：`cargo run -- --help` 列出 init/status/commit/log/show/diff/restore/rollback/safety/ignore/gc/fsck/config，`cargo test cli_help` 通过
-- [ ] 1.4 定义错误模型（`FodeltaError` 枚举 + 退出码映射），统一 stderr 呈现；验证：单元测试覆盖 `DiffFound` → 1、`NotFound`/`Corrupt`/`Usage` → 2
-- [ ] 1.5 建立测试基建：临时仓库 fixture、`fodelta_cmd()` 辅助、`NO_COLOR`/`TERM=dumb` 固定；验证：`cargo test --test smoke` 中一个空测试通过
-- [ ] 1.6 配置 CI：fmt、clippy `-D warnings`、Linux/macOS/Windows 测试矩阵；验证：本地 `cargo fmt --check && cargo clippy --all-targets -- -D warnings` 通过
+- [x] 1.1 创建 `fodelta` crate（lib + bin，edition 2024，MSRV 1.89），配置 `[profile.release]`；验证：`cargo build` 成功且 `target/debug/fodelta --version` 输出版本号
+- [x] 1.2 加入运行期与开发依赖（clap、blake3、zstd、ignore、similar、toml、serde、chrono、rayon、thiserror、anyhow、anstream、anstyle、indicatif；dev：assert_cmd、predicates、tempfile、proptest、criterion；不引入 diffy）；验证：`cargo build --all-targets` 通过且 `Cargo.lock` 被提交
+- [x] 1.3 搭建 CLI 骨架：13 个子命令、全局 `-C` / `--color` / `--jobs` / `--quiet`、帮助文本；验证：`cargo run -- --help` 列出 init/status/commit/log/show/diff/restore/rollback/safety/ignore/gc/fsck/config，`cargo test cli_help` 通过
+- [x] 1.4 定义错误模型（`FodeltaError` 枚举 + 退出码映射），统一 stderr 呈现；验证：单元测试覆盖 `DiffFound` → 1、`NotFound`/`Corrupt`/`Usage` → 2
+- [x] 1.5 建立测试基建：临时仓库 fixture、`fodelta_cmd()` 辅助、`NO_COLOR`/`TERM=dumb` 固定；验证：`cargo test --test smoke` 中一个空测试通过
+- [x] 1.6 配置 CI：fmt、clippy `-D warnings`、Linux/macOS/Windows 测试矩阵；验证：本地 `cargo fmt --check && cargo clippy --all-targets -- -D warnings` 通过
 
 ## 2. 对象存储与仓库
 
