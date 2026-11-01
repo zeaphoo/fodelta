@@ -7,7 +7,7 @@
 | `repository` | 6 | 14 | `tests/init.rs`、`src/repo/*` 单元测试 |
 | `working-tree` | 7 | 15 | `tests/status.rs`、`src/worktree/scan.rs`、`src/worktree/stat_cache.rs` |
 | `history` | 7 | 28 | `tests/commit.rs`、`tests/log_show.rs`、`src/history/commit.rs` |
-| `diff` | 6 | 15 | `tests/diff.rs`、`src/diff/text.rs`、`src/diff/render.rs` |
+| `diff` | 10 | 31 | `tests/diff.rs`、`src/diff/text.rs`、`src/diff/render.rs` |
 | `rollback` | 6 | 17 | `tests/restore_rollback.rs`、`tests/crash.rs`、`src/safety.rs` |
 | `ignore` | 5 | 14 | `tests/status.rs`、`src/ignore.rs`、`src/worktree/scan.rs` |
 | `maintenance` | 6 | 13 | `tests/maintenance.rs`、`tests/crash.rs`、`src/maintenance/*` |
@@ -53,4 +53,4 @@
   精确/相似度重命名、阈值与 `--no-renames`、`--diff-filter`、空白忽略、histogram；
   `tests/log_show.rs` 覆盖 show/log --stat 中对带修改重命名的补丁与统计。
 
-以上手工项与自动化测试共同覆盖 43 条 Requirement / 116 个 Scenario。
+以上手工项与自动化测试共同覆盖 47 条 Requirement / 132 个 Scenario。

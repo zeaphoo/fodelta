@@ -1,0 +1,162 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: 文本差异渲染
+
+文本文件差异 SHALL 以 Git 风格 unified diff 输出：修改文件包含 `diff --git a/<path> b/<path>`、`index <old>..<new> <mode>`、`--- a/<path>` / `+++ b/<path>`；新增/删除文件缺失的一侧 MUST 使用 `/dev/null`。hunk 头 MUST 为 `@@ -l[,c] +l[,c] @@`（计数为 1 时省略 `,1`），默认 3 行上下文并支持 `-U <n>`。最后一行缺少换行时 MUST 输出 `\ No newline at end of file`；内容按字节比较，不静默转换换行符。
+
+#### Scenario: 标准文本差异
+
+- **WHEN** 用户把 `a.txt` 第 3 行由 `old` 改为 `new` 后执行 `fodelta diff`
+- **THEN** 输出包含 `diff --git a/a.txt b/a.txt`、`index `、`-old` 与 `+new`，且块头行号与实际行号一致
+
+#### Scenario: 调整上下文
+
+- **WHEN** 用户执行 `fodelta diff -U0`
+- **THEN** 输出中不包含未变化的上下文行
+
+#### Scenario: CRLF 内容不被改写
+
+- **WHEN** 文件中包含 CRLF 行尾且仅有一行变化
+- **THEN** 未变化行的 CRLF 原样保留在输出中，不出现整文件重写
+
+#### Scenario: 新增与删除使用 /dev/null
+
+- **WHEN** 用户分别比较新增文件与删除文件
+- **THEN** 新增文件输出 `--- /dev/null` 与 `+++ b/<path>`，删除文件输出 `--- a/<path>` 与 `+++ /dev/null`
+
+#### Scenario: 缺少结尾换行
+
+- **WHEN** 文件最后一行没有换行符且该行被修改
+- **THEN** 输出在该行后包含 `\ No newline at end of file`
+
+#### Scenario: 单行 hunk 省略计数
+
+- **WHEN** 单行文件发生一行替换
+- **THEN** hunk 头为 `@@ -1 +1 @@`，不出现 `,1`
+
+### Requirement: 二进制与元数据变化
+
+无法按 UTF-8 文本处理的文件 SHALL 以“Binary files a/<path> and b/<path> differ”形式提示，MUST NOT 输出乱码内容。模式变化 SHALL 输出 `old mode` / `new mode`；文件与符号链接之间的类型变化 MUST 拆成 `deleted file mode` 与 `new file mode` 两块补丁，且 `--name-status` MUST 仍显示 `T`。
+
+#### Scenario: 二进制文件差异
+
+- **WHEN** 两个版本的 `logo.png` 内容不同
+- **THEN** 输出 Binary files differ 提示，不打印文件字节
+
+#### Scenario: 类型变化
+
+- **WHEN** 路径 `cfg` 从普通文件变为符号链接
+- **THEN** 补丁包含 `deleted file mode 100644` 与 `new file mode 120000` 两块，`--name-status` 显示 `T`
+
+### Requirement: 汇总与机器可读输出
+
+`fodelta diff` SHALL 支持 `--stat`（每文件增删行数与总计）、`--name-status`（`A`/`M`/`D`/`T`/`R<score>` 前缀）与 `--name-only`，三者互斥且不与完整补丁同时输出。重命名的 `--name-status` MUST 输出旧路径与新路径，`--name-only` MUST 输出新路径；`--stat` MUST 以 `old => new` 展示重命名。汇总 MUST 使用单复数正确的 `file(s) changed` / `insertion(s)(+)` / `deletion(s)(-)`。
+
+#### Scenario: 统计输出
+
+- **WHEN** 用户执行 `fodelta diff --stat HEAD~1 HEAD`
+- **THEN** 每个变更文件一行，末尾输出形如 `3 files changed, 10 insertions(+), 2 deletions(-)` 的汇总
+
+#### Scenario: 名称与状态
+
+- **WHEN** 用户执行 `fodelta diff --name-status HEAD~1 HEAD`
+- **THEN** 每行形如 `M\tsrc/lib.rs`，新增文件前缀为 `A`，删除为 `D`
+
+#### Scenario: 重命名的汇总
+
+- **WHEN** `old.txt` 被移动为 `new.txt`
+- **THEN** `--name-status` 输出 `R100\told.txt\tnew.txt`，`--name-only` 输出 `new.txt`，`--stat` 输出 `old.txt => new.txt | 0`
+
+### Requirement: 差异退出码
+
+`fodelta diff` 默认在存在差异时仍返回 0；传入 `--exit-code` 时 SHALL 在存在有效差异时返回 1、无差异返回 0。空白忽略选项导致 patch/stat 为空时 MUST 视为无差异；参数或仓库错误 MUST 以 2 返回，不得与“存在差异”的 1 混淆。
+
+#### Scenario: 脚本检测差异
+
+- **WHEN** 存在差异且用户执行 `fodelta diff --exit-code`
+- **THEN** 退出码为 1
+
+#### Scenario: 无差异时脚本通过
+
+- **WHEN** 无差异且用户执行 `fodelta diff --exit-code`
+- **THEN** 退出码为 0
+
+#### Scenario: 空白差异不计入退出码
+
+- **WHEN** 只有空白变化且用户执行 `fodelta diff -w --exit-code`
+- **THEN** 输出为空，退出码为 0
+
+## ADDED Requirements
+
+### Requirement: 重命名检测
+
+删除与新增文件默认 SHALL 进行重命名检测：内容相同者 MUST 识别为 `R100`；其余 MUST 按行相似度检测，默认阈值 50，分数为 `2 × 相同行数 / (旧行数 + 新行数) × 100`。相似度低于阈值或使用 `--no-renames` 时 MUST 保持删除 + 新增。`--rename-threshold` MUST 接受 1-100。重命名的路径过滤 MUST 同时匹配旧路径与新路径。
+
+#### Scenario: 精确重命名
+
+- **WHEN** 文件内容不变，仅路径从 `old.txt` 移动到 `new.txt`
+- **THEN** `--name-status` 输出 `R100\told.txt\tnew.txt`，补丁包含 `similarity index 100%` 与 `rename from/to`
+
+#### Scenario: 带修改的重命名
+
+- **WHEN** 文件移动且其中一行被修改，行相似度约为 90
+- **THEN** `--name-status` 输出 `R90\told.txt\tnew.txt`，补丁同时包含重命名行与内容 hunk
+
+#### Scenario: 提高阈值或关闭重命名
+
+- **WHEN** 用户执行 `--rename-threshold 95` 或 `--no-renames`
+- **THEN** 同一变更显示为 `D old.txt` 与 `A new.txt`
+
+#### Scenario: 按旧路径过滤重命名
+
+- **WHEN** 用户执行 `fodelta diff -- old.txt`
+- **THEN** 输出该重命名的补丁
+
+### Requirement: 空白忽略
+
+`fodelta diff` SHALL 支持 `-w/--ignore-all-space`、`-b/--ignore-space-change` 与 `--ignore-space-at-eol`。仅空白差异时 patch 与 `--stat` MUST 为空、`--exit-code` MUST 返回 0；`--name-status` 与 `--name-only` MUST 仍列出该文件，与 git 一致。
+
+#### Scenario: 忽略所有空白
+
+- **WHEN** 文件仅空白数量变化且用户执行 `fodelta diff -w`
+- **THEN** 输出为空，`--exit-code` 返回 0
+
+#### Scenario: 忽略空白数量变化
+
+- **WHEN** 用户执行 `fodelta diff -b`
+- **THEN** 仅空白数量变化不产生 patch
+
+#### Scenario: 忽略行尾空白
+
+- **WHEN** 用户执行 `fodelta diff --ignore-space-at-eol`
+- **THEN** 仅行尾空白变化不产生 patch
+
+### Requirement: 差异算法选择
+
+`fodelta diff` SHALL 支持 `--diff-algorithm myers|patience|histogram`，并 MUST 允许通过 `diff.algorithm` 配置同一组值。非法值 MUST 以非 0 退出。四种算法对同一输入 MUST 产生合法的 unified diff。
+
+#### Scenario: 使用 histogram
+
+- **WHEN** 用户执行 `fodelta diff --diff-algorithm histogram`
+- **THEN** 命令成功并输出合法 unified diff
+
+#### Scenario: 通过配置选择
+
+- **WHEN** 用户设置 `diff.algorithm = "histogram"` 后执行 `fodelta diff`
+- **THEN** 使用 histogram 算法且命令成功
+
+### Requirement: 差异状态过滤
+
+`fodelta diff --diff-filter=<letters>` SHALL 只输出状态字母匹配的变更，支持 `A`、`D`、`M`、`R`、`T`。过滤 MUST 在重命名检测之后执行；包含其他字母或空值 MUST 以非 0 退出。
+
+#### Scenario: 只显示重命名
+
+- **WHEN** 用户执行 `fodelta diff --diff-filter=R`
+- **THEN** 输出只包含重命名变更
+
+#### Scenario: 非法过滤字母
+
+- **WHEN** 用户执行 `fodelta diff --diff-filter=Z`
+- **THEN** 命令以非 0 退出并提示支持的字母
