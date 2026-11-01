@@ -1,6 +1,6 @@
 # 规格覆盖
 
-当前共 170 个测试（`cargo test --all-targets`）。测试分布：
+当前共 175 个测试（`cargo test --all-targets`）。测试分布：
 
 | 能力 | Requirement | Scenario | 主要测试 |
 |------|-------------|----------|----------|
@@ -45,5 +45,8 @@
 - 行级 `log --stat`：`tests/log_show.rs` 断言 `+N/-M` 与汇总行。
 - safety 过期裁剪：`tests/maintenance.rs` 验证 GC 会清理过期日志。
 - FIFO 警告：`tests/status.rs` 在 Unix 上创建 FIFO 并断言 stderr 警告。
+- ignored 文件覆盖：`tests/restore_rollback.rs` 验证被 ignored 的未跟踪文件在 rollback/restore
+  覆盖前进入 safety，且可恢复。
+- 文件/目录类型变化：`tests/commit.rs` 覆盖 file→dir、dir→file；目录冲突时 rollback 拒绝执行。
 
 以上手工项与自动化测试共同覆盖 43 条 Requirement / 116 个 Scenario。

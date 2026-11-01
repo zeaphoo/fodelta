@@ -186,3 +186,17 @@ fn directory_prefix_commit_leaves_other_changes() {
     assert!(status.contains("modified: docs/x.md"), "{status}");
     assert!(!status.contains("src/a.rs"), "{status}");
 }
+
+#[test]
+fn directory_to_file_type_change_is_committed() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("cfg/child", b"child");
+    assert!(run(&repo, &["commit", "-m", "dir"]).status.success());
+
+    std::fs::remove_dir_all(repo.path_of("cfg")).unwrap();
+    repo.write("cfg", b"file");
+    let output = run(&repo, &["commit", "-m", "file"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&run(&repo, &["status"])).contains("working tree clean"));
+}

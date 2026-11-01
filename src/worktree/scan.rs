@@ -50,11 +50,19 @@ pub fn scan(root: &Path, tracked: &BTreeSet<Vec<u8>>) -> Result<Vec<WorktreeEntr
         }
         let absolute = path::join(root, relative);
         match fs::symlink_metadata(&absolute) {
+            Ok(metadata) if metadata.is_dir() => {
+                // The tracked file was replaced by a directory; the directory's
+                // children are already part of the walk.
+            }
             Ok(_) => {
                 let entry = entry_from_path(&absolute, relative.clone())?;
                 entries.insert(entry.path.clone(), entry);
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) => {}
             Err(error) => return Err(error.into()),
         }
     }

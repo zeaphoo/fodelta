@@ -74,6 +74,9 @@ pub enum FodeltaError {
     #[error("path does not exist in {rev}: {path}")]
     PathMissingInRev { rev: String, path: PathBuf },
 
+    #[error("cannot replace directory with file: {path}")]
+    PathConflict { path: PathBuf },
+
     #[error("nothing to commit (working tree matches HEAD)")]
     NothingToCommit,
 

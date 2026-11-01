@@ -24,10 +24,10 @@ cargo bench --bench status -- --quick
 `./scripts/perf-20k.sh`（release，20,000 个小文件，首次全量提交）：
 
 ```text
-commit:   1.65 s     # 首次提交，需要哈希/压缩全部 20k 文件
+commit:   1.80 s     # 首次提交，需要哈希/压缩全部 20k 文件
 status:   0.10 s     # 热 stat-cache，无变更
-noop:     0.10 s     # 无变化提交，只做 stat-cache 命中检查
-commit-x: 0.25 s     # 只提交 data/file-42.txt
+noop:     0.11 s     # 无变化提交，只做 stat-cache 命中检查
+commit-x: 0.24 s     # 只提交 data/file-42.txt
 log:      0.00 s     # log -n 50
 ```
 

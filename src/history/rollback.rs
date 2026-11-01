@@ -6,7 +6,7 @@ use crate::history::revparse::read_commit;
 use crate::history::tree_map::{TreeMap, flatten_tree, head_tree};
 use crate::odb::{Commit, ObjectId, ObjectKind};
 use crate::repo::{MAIN_REF, Repository, refs};
-use crate::worktree::restore::{clear_cache, sync_worktree};
+use crate::worktree::restore::{clear_cache, overwrite_collisions, sync_worktree};
 
 #[derive(Debug, Clone)]
 pub struct RollbackOptions {
@@ -32,7 +32,8 @@ pub fn rollback(repo: &Repository, options: &RollbackOptions) -> Result<Rollback
     let head_oid = repo.head_oid()?;
     let head_map = head_tree(repo)?;
     let current = crate::diff::worktree_map(repo)?;
-    let dirty = current != head_map;
+    let extras = overwrite_collisions(repo, &target_map, &[], &current)?;
+    let dirty = current != head_map || !extras.is_empty();
 
     if target_map == head_map {
         if !dirty {
@@ -48,7 +49,7 @@ pub fn rollback(repo: &Repository, options: &RollbackOptions) -> Result<Rollback
         let safety = if options.no_safety {
             None
         } else {
-            crate::safety::create(repo, "before rollback")?
+            crate::safety::create(repo, "before rollback", &extras)?
         };
         sync_worktree(repo, &target_map, &[], true)?;
         clear_cache(repo)?;
@@ -63,7 +64,7 @@ pub fn rollback(repo: &Repository, options: &RollbackOptions) -> Result<Rollback
     }
 
     let safety = if dirty && !options.no_safety {
-        crate::safety::create(repo, "before rollback")?
+        crate::safety::create(repo, "before rollback", &extras)?
     } else {
         None
     };

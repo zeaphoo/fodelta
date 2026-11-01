@@ -184,3 +184,110 @@ fn rollback_uses_a_custom_message() {
     let log = stdout(&run(&repo, &["log", "--oneline", "-n", "1"]));
     assert!(log.contains("back to v1"), "{log}");
 }
+
+fn latest_safety(repo: &TestRepo) -> String {
+    let output = run(repo, &["safety"]);
+    stdout(&output)
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().next())
+        .expect("safety entry")
+        .to_string()
+}
+
+#[test]
+fn ignored_untracked_file_is_captured_by_rollback_safety() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"a1");
+    repo.write("secret.env", b"secret-v1");
+    assert!(run(&repo, &["commit", "-m", "c1"]).status.success());
+
+    std::fs::remove_file(repo.path_of("secret.env")).unwrap();
+    repo.write(".gitignore", b"secret.env\n");
+    assert!(run(&repo, &["commit", "-m", "c2"]).status.success());
+
+    repo.write("secret.env", b"secret-v2");
+    repo.write("a.txt", b"a2");
+    assert!(run(&repo, &["rollback", "HEAD~1"]).status.success());
+
+    let safety = latest_safety(&repo);
+    let output = run(&repo, &["show", &format!("{safety}:secret.env")]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert_eq!(output.stdout, b"secret-v2");
+
+    assert!(
+        run(&repo, &["restore", &safety, "--delete"])
+            .status
+            .success()
+    );
+    assert_eq!(repo.read("secret.env"), b"secret-v2");
+}
+
+#[test]
+fn untracked_files_are_recoverable_after_rollback() {
+    let repo = TestRepo::new();
+    seed(&repo);
+    repo.write("new.txt", b"new");
+    repo.write("a.txt", b"dirty");
+
+    assert!(run(&repo, &["rollback", "HEAD~1"]).status.success());
+    assert!(!repo.exists("new.txt"));
+
+    let safety = latest_safety(&repo);
+    assert!(
+        run(&repo, &["restore", &safety, "--delete"])
+            .status
+            .success()
+    );
+    assert_eq!(repo.read("new.txt"), b"new");
+    assert_eq!(repo.read("a.txt"), b"dirty");
+}
+
+#[test]
+fn rollback_refuses_to_replace_a_directory_with_a_file() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("cfg", b"file");
+    assert!(run(&repo, &["commit", "-m", "file"]).status.success());
+
+    std::fs::remove_file(repo.path_of("cfg")).unwrap();
+    repo.write("cfg/child", b"child");
+    let output = run(&repo, &["commit", "-m", "dir"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+
+    let output = run(&repo, &["rollback", "HEAD~1"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("cannot replace directory"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(repo.read("cfg/child"), b"child");
+}
+
+#[test]
+fn restore_captures_ignored_collision_in_safety() {
+    let repo = TestRepo::new();
+    init(&repo);
+    repo.write("a.txt", b"a1");
+    repo.write("secret.env", b"secret-v1");
+    assert!(run(&repo, &["commit", "-m", "c1"]).status.success());
+
+    std::fs::remove_file(repo.path_of("secret.env")).unwrap();
+    repo.write(".gitignore", b"secret.env\n");
+    assert!(run(&repo, &["commit", "-m", "c2"]).status.success());
+
+    repo.write("secret.env", b"secret-v2");
+    let output = run(&repo, &["restore", "HEAD~1", "--", "secret.env"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let text = stdout(&output);
+    let safety = text
+        .lines()
+        .find_map(|line| line.strip_prefix("safety snapshot "))
+        .expect("safety id")
+        .to_string();
+    let output = run(&repo, &["show", &format!("{safety}:secret.env")]);
+    assert_eq!(output.stdout, b"secret-v2");
+    assert_eq!(repo.read("secret.env"), b"secret-v1");
+}

@@ -116,6 +116,20 @@ fodelta rollback HEAD                # 干净时 no-op；脏时仅同步工作�
 追加一个新提交，其树等于目标版本，历史不丢失。工作区会被同步为目标树的精确状态
 （保留未跟踪的忽略文件）；有未提交修改时先创建安全快照。
 
+## 未提交修改与破坏性操作
+
+`rollback` 与 `restore` 会覆盖工作区，规则如下：
+
+- 工作区有未提交修改（含未跟踪的新文件）时，先创建 safety 快照，再执行操作。
+- `rollback` 把工作区同步为目标树的精确状态：删除多余的非忽略文件，保留被忽略的未跟踪文件。
+- 如果目标版本中的某个路径，在当前工作区是一个被忽略的未跟踪文件，fodelta 会把该文件也写入
+  safety 快照，避免被覆盖后无法找回。
+- 如果目标路径是文件、而当前工作区同名路径是目录，操作会被拒绝（`cannot replace directory with file`），
+  不会删除目录内容。
+- `--no-safety` 跳过快照并输出警告；此时被覆盖的修改可能无法恢复。
+- 恢复方式：`fodelta safety` 找到短哈希，然后 `fodelta restore <safety-id> --delete`。
+- safety 快照默认保留 `core.safety_retention_days`（30 天），`gc` 会裁剪过期记录。
+
 ## safety
 
 ```bash

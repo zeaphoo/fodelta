@@ -29,7 +29,7 @@ pub struct SafetyEntry {
 /// working tree already matches HEAD.
 ///
 /// The caller must hold the repository lock.
-pub fn create(repo: &Repository, reason: &str) -> Result<Option<ObjectId>> {
+pub fn create(repo: &Repository, reason: &str, extras: &[Vec<u8>]) -> Result<Option<ObjectId>> {
     let head = head_tree(repo)?;
     let tracked: std::collections::BTreeSet<Vec<u8>> = head.keys().cloned().collect();
     let entries = scan::scan(&repo.root, &tracked)?;
@@ -41,6 +41,20 @@ pub fn create(repo: &Repository, reason: &str) -> Result<Option<ObjectId>> {
             TreeEntryInfo {
                 mode: entry.stat.mode,
                 oid: write_object(&store, &repo.root, entry)?,
+            },
+        );
+    }
+    for extra in extras {
+        if current.contains_key(extra) {
+            continue;
+        }
+        let absolute = crate::util::path::join(&repo.root, extra);
+        let entry = scan::entry_from_path(&absolute, extra.clone())?;
+        current.insert(
+            extra.clone(),
+            TreeEntryInfo {
+                mode: entry.stat.mode,
+                oid: write_object(&store, &repo.root, &entry)?,
             },
         );
     }
@@ -190,9 +204,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(create(&repo, "clean").unwrap().is_none());
+        assert!(create(&repo, "clean", &[]).unwrap().is_none());
         std::fs::write(repo.root.join("a.txt"), b"dirty").unwrap();
-        let oid = create(&repo, "dirty").unwrap().expect("snapshot");
+        let oid = create(&repo, "dirty", &[]).unwrap().expect("snapshot");
         assert!(repo.store().read(oid).is_ok());
         let entries = list(&repo).unwrap();
         assert_eq!(entries.len(), 1);

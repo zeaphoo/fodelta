@@ -52,7 +52,8 @@ pub fn restore_with_lock(repo: &Repository, options: &RestoreOptions) -> Result<
     };
     let head = head_tree(repo)?;
     let current = worktree_map(repo)?;
-    let dirty = current != head;
+    let extras = overwrite_collisions(repo, &source_map, &options.paths, &current)?;
+    let dirty = current != head || !extras.is_empty();
 
     for spec in &options.paths {
         let in_source = source_map
@@ -70,7 +71,7 @@ pub fn restore_with_lock(repo: &Repository, options: &RestoreOptions) -> Result<
     }
 
     let safety = if dirty && !options.no_safety {
-        crate::safety::create(repo, "before restore")?
+        crate::safety::create(repo, "before restore", &extras)?
     } else {
         None
     };
@@ -86,6 +87,35 @@ pub fn restore_with_lock(repo: &Repository, options: &RestoreOptions) -> Result<
         dirty,
         safety_skipped,
     })
+}
+
+/// Paths that exist in the working tree but are hidden by ignore rules and
+/// would be overwritten by `source`. They are added to the safety snapshot so
+/// the original bytes remain recoverable.
+pub fn overwrite_collisions(
+    repo: &Repository,
+    source: &TreeMap,
+    specs: &[Vec<u8>],
+    current: &TreeMap,
+) -> Result<Vec<Vec<u8>>> {
+    let mut extras = Vec::new();
+    for relative in source.keys() {
+        if !selected(specs, relative) || current.contains_key(relative) {
+            continue;
+        }
+        let absolute = path::join(&repo.root, relative);
+        match std::fs::symlink_metadata(&absolute) {
+            Ok(metadata) if metadata.is_dir() => {
+                return Err(FodeltaError::PathConflict {
+                    path: path::bytes_to_path(relative),
+                });
+            }
+            Ok(_) => extras.push(relative.clone()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(extras)
 }
 
 /// Write `source` into the working tree, optionally deleting files that are not
