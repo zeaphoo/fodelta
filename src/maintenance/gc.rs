@@ -70,7 +70,23 @@ pub fn gc(repo: &Repository, dry_run: bool) -> Result<GcOutcome> {
 }
 
 fn cleanup_temp_files(root: &std::path::Path) -> Result<()> {
+    cleanup_temp_dir(root)?;
     let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            cleanup_temp_dir(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn cleanup_temp_dir(directory: &std::path::Path) -> Result<()> {
+    let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),

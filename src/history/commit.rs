@@ -51,14 +51,14 @@ pub fn create_commit(repo: &Repository, options: &CommitOptions) -> Result<Commi
     } else {
         head_map.clone()
     };
-    let mut selected_worktree: Vec<&WorktreeEntry> = Vec::new();
+    let mut selected_worktree: Vec<(&WorktreeEntry, ObjectId)> = Vec::new();
 
     if options.paths.is_empty() {
         for entry in &worktree {
             ensure_size(entry, max_file_size, options.allow_large_files)?;
             let info = write_entry(&store, &repo.root, entry)?;
             new_map.insert(entry.path.clone(), info);
-            selected_worktree.push(entry);
+            selected_worktree.push((entry, info.oid));
         }
     } else {
         for spec in &options.paths {
@@ -99,7 +99,7 @@ pub fn create_commit(repo: &Repository, options: &CommitOptions) -> Result<Commi
                 ensure_size(entry, max_file_size, options.allow_large_files)?;
                 let info = write_entry(&store, &repo.root, entry)?;
                 new_map.insert(entry.path.clone(), info);
-                selected_worktree.push(entry);
+                selected_worktree.push((entry, info.oid));
             }
         }
     }
@@ -123,7 +123,7 @@ pub fn create_commit(repo: &Repository, options: &CommitOptions) -> Result<Commi
         repo.config.core.fsync.fsync_refs(),
     )?;
 
-    update_stat_cache(repo, &selected_worktree, &options.paths, &store)?;
+    update_stat_cache(repo, &selected_worktree, &options.paths)?;
 
     let remaining = compute_status(repo, false)
         .map(|report| report.total_changes())
@@ -183,9 +183,8 @@ fn count_changes(before: &TreeMap, after: &TreeMap) -> usize {
 
 fn update_stat_cache(
     repo: &Repository,
-    selected: &[&WorktreeEntry],
+    selected: &[(&WorktreeEntry, ObjectId)],
     specs: &[Vec<u8>],
-    store: &crate::odb::ObjectStore,
 ) -> Result<()> {
     let cache_path = repo.fodelta.join("stat-cache");
     let mut cache = StatCache::load(&cache_path);
@@ -194,15 +193,8 @@ fn update_stat_cache(
     } else {
         cache.retain(|path| !specs.iter().any(|spec| path::is_within(spec, path)));
     }
-    for entry in selected {
-        let oid = match entry.kind {
-            EntryKind::Symlink => {
-                let target = scan::symlink_target_bytes(&entry.absolute(&repo.root))?;
-                crate::odb::blob_hash(&target)
-            }
-            EntryKind::File => store.hash_file(&entry.absolute(&repo.root))?,
-        };
-        cache.insert(entry.path.clone(), entry.stat, oid);
+    for (entry, oid) in selected {
+        cache.insert(entry.path.clone(), entry.stat, *oid);
     }
     // The cache is only an optimization; a failure here must not fail a commit
     // that already moved HEAD.
