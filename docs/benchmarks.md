@@ -9,7 +9,7 @@
 | `status_1k_clean` | 1,000 文件、无变更、热 stat-cache | 约 4.1 ms |
 
 按线性外推，2 万文件的干净 `status` 约 80 ms，低于设计目标 150 ms；正式验收见
-`openspec/changes/add-fodelta-core/tasks.md` 的 9.3。
+`openspec/changes/archive/2026-11-01-add-fodelta-core/tasks.md` 的 9.3。
 
 运行：
 

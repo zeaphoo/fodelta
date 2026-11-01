@@ -92,10 +92,10 @@ src/
 ```
 
 设计与规格在 `openspec/`：
-[proposal](openspec/changes/add-fodelta-core/proposal.md)、
-[design](openspec/changes/add-fodelta-core/design.md)、
-[tasks](openspec/changes/add-fodelta-core/tasks.md)、
-[specs](openspec/changes/add-fodelta-core/specs)。
+[proposal](openspec/changes/archive/2026-11-01-add-fodelta-core/proposal.md)、
+[design](openspec/changes/archive/2026-11-01-add-fodelta-core/design.md)、
+[tasks](openspec/changes/archive/2026-11-01-add-fodelta-core/tasks.md)、
+[specs](openspec/specs)。
 
 ## 开发
 
