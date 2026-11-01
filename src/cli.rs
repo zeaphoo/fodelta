@@ -11,7 +11,8 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use crate::diff::render::{RenderOptions, render as render_diff};
 use crate::diff::text::WhitespaceOptions;
 use crate::diff::{
-    DiffAlgorithm, FileChange, FileChangeKind, diff_trees, head_side, rev_side, worktree_side,
+    DiffAlgorithm, FileChange, FileChangeKind, RenameOptions, detect_renames, diff_trees,
+    diff_trees_with, head_side, rev_side, worktree_side,
 };
 use crate::history::{
     CommitOptions, LogOptions, RollbackOptions, ShowOutput, create_commit, log_entries,
@@ -174,6 +175,26 @@ pub enum Command {
             value_parser = ["myers", "patience", "histogram"]
         )]
         algorithm: Option<String>,
+
+        /// Detect renames (default) with the default threshold.
+        #[arg(short = 'M', long = "find-renames")]
+        find_renames: bool,
+
+        /// Rename similarity threshold (1-100, default 50).
+        #[arg(
+            long = "rename-threshold",
+            value_name = "N",
+            value_parser = clap::value_parser!(u8).range(1..=100)
+        )]
+        rename_threshold: Option<u8>,
+
+        /// Disable rename detection.
+        #[arg(long = "no-renames")]
+        no_renames: bool,
+
+        /// Only show changes matching these status letters (A/D/M/R/T).
+        #[arg(long = "diff-filter", value_name = "FILTER")]
+        diff_filter: Option<String>,
 
         /// Restrict the comparison to these paths.
         #[arg(last = true, value_name = "PATH")]
@@ -340,6 +361,10 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
             ignore_space_change,
             ignore_space_at_eol,
             algorithm,
+            find_renames,
+            rename_threshold,
+            no_renames,
+            diff_filter,
             paths,
         } => cmd_diff(
             &start,
@@ -353,6 +378,10 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
             ignore_space_change,
             ignore_space_at_eol,
             algorithm,
+            find_renames,
+            rename_threshold,
+            no_renames,
+            diff_filter,
             &paths,
         ),
         Command::Restore {
@@ -535,9 +564,35 @@ fn cmd_diff(
     ignore_space_change: bool,
     ignore_space_at_eol: bool,
     algorithm: Option<String>,
+    find_renames: bool,
+    rename_threshold: Option<u8>,
+    no_renames: bool,
+    diff_filter: Option<String>,
     paths: &[PathBuf],
 ) -> Result<ExitCode> {
     let repo = Repository::open(start)?;
+    if no_renames && find_renames {
+        return Err(FodeltaError::Config(
+            "--no-renames and --find-renames are mutually exclusive".to_string(),
+        ));
+    }
+    if no_renames && rename_threshold.is_some() {
+        return Err(FodeltaError::Config(
+            "--no-renames cannot be combined with --rename-threshold".to_string(),
+        ));
+    }
+    let filter = match diff_filter {
+        Some(filter) => {
+            let upper = filter.to_ascii_uppercase();
+            if upper.is_empty() || !upper.chars().all(|letter| "ADMRT".contains(letter)) {
+                return Err(FodeltaError::Config(
+                    "--diff-filter accepts A, D, M, R and T".to_string(),
+                ));
+            }
+            Some(upper)
+        }
+        None => None,
+    };
     let selected = [stat, name_status, name_only]
         .iter()
         .filter(|value| **value)
@@ -563,7 +618,15 @@ fn cmd_diff(
         _ => unreachable!("clap limits diff to two revisions"),
     };
 
-    let mut changes = diff_trees(&left.map, &right.map);
+    let renames = RenameOptions {
+        enabled: !no_renames,
+        threshold: rename_threshold.unwrap_or(50),
+    };
+    let mut changes = diff_trees_with(&left.map, &right.map, renames.enabled);
+    detect_renames(&left, &right, &mut changes, renames)?;
+    if let Some(filter) = &filter {
+        changes.retain(|change| filter.contains(change.kind.letter()));
+    }
     if !specs.is_empty() {
         changes.retain(|change| change_matches(change, &specs));
     }
@@ -628,11 +691,24 @@ fn cmd_diff(
         for (change, output) in &rendered {
             if change.kind == FileChangeKind::Renamed {
                 let old = change.old_path.as_deref().unwrap_or(&change.path);
-                println!(
-                    " {} => {} | 0",
-                    path::display(old),
-                    path::display(&change.path)
-                );
+                let stats = output.stats.unwrap_or_default();
+                insertions += stats.added;
+                deletions += stats.removed;
+                if stats.added + stats.removed == 0 {
+                    println!(
+                        " {} => {} | 0",
+                        path::display(old),
+                        path::display(&change.path)
+                    );
+                } else {
+                    println!(
+                        " {} => {} | {} insertions(+), {} deletions(-)",
+                        path::display(old),
+                        path::display(&change.path),
+                        stats.added,
+                        stats.removed
+                    );
+                }
                 continue;
             }
             match output.stats {
@@ -755,7 +831,8 @@ fn cmd_log(
         }
         if stat {
             let (left, right) = crate::diff::commit_sides(&repo, &entry.commit)?;
-            let changes = diff_trees(&left.map, &right.map);
+            let mut changes = diff_trees(&left.map, &right.map);
+            detect_renames(&left, &right, &mut changes, RenameOptions::default())?;
             if !changes.is_empty() {
                 println!();
             }
@@ -763,16 +840,29 @@ fn cmd_log(
             let mut insertions = 0usize;
             let mut deletions = 0usize;
             for change in &changes {
+                let rendered = render_diff(change, &left, &right, &options)?;
                 if change.kind == FileChangeKind::Renamed {
                     let old = change.old_path.as_deref().unwrap_or(&change.path);
-                    println!(
-                        "  {} => {} | 0",
-                        path::display(old),
-                        path::display(&change.path)
-                    );
+                    let stats = rendered.stats.unwrap_or_default();
+                    insertions += stats.added;
+                    deletions += stats.removed;
+                    if stats.added + stats.removed == 0 {
+                        println!(
+                            "  {} => {} | 0",
+                            path::display(old),
+                            path::display(&change.path)
+                        );
+                    } else {
+                        println!(
+                            "  {} => {} | {} +, {} -",
+                            path::display(old),
+                            path::display(&change.path),
+                            stats.added,
+                            stats.removed
+                        );
+                    }
                     continue;
                 }
-                let rendered = render_diff(change, &left, &right, &options)?;
                 match rendered.stats {
                     Some(stats) => {
                         insertions += stats.added;
@@ -836,7 +926,8 @@ fn cmd_show(start: &std::path::Path, spec: &str) -> Result<ExitCode> {
             }
             println!();
             let (left, right) = crate::diff::commit_sides(&repo, &view.commit)?;
-            let changes = diff_trees(&left.map, &right.map);
+            let mut changes = diff_trees(&left.map, &right.map);
+            detect_renames(&left, &right, &mut changes, RenameOptions::default())?;
             if changes.is_empty() {
                 println!("(no changes)");
             } else {

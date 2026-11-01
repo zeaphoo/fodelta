@@ -1,6 +1,6 @@
 # 规格覆盖
 
-当前共 187 个测试（`cargo test --all-targets`）。测试分布：
+当前共 190 个测试（`cargo test --all-targets`）。测试分布：
 
 | 能力 | Requirement | Scenario | 主要测试 |
 |------|-------------|----------|----------|
@@ -50,6 +50,7 @@
 - 文件/目录类型变化：`tests/commit.rs` 覆盖 file→dir、dir→file；目录冲突时 rollback 拒绝执行。
 - 回滚后继续提交：`tests/restore_rollback.rs` 验证线性历史、`HEAD~N` 位置与 `diff c1 HEAD` 语义。
 - Git 风格 diff：`tests/diff.rs` 覆盖 `/dev/null`、`index`、no-newline 标记、单行 hunk、
-  精确重命名、空白忽略、histogram；`tests/log_show.rs` 覆盖 show/log --stat 中的重命名。
+  精确/相似度重命名、阈值与 `--no-renames`、`--diff-filter`、空白忽略、histogram；
+  `tests/log_show.rs` 覆盖 show/log --stat 中对带修改重命名的补丁与统计。
 
 以上手工项与自动化测试共同覆盖 43 条 Requirement / 116 个 Scenario。

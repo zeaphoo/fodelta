@@ -205,3 +205,32 @@ fn show_and_log_stat_report_renames() {
     let output = run(&repo, &["log", "-n", "1", "--stat"]);
     assert!(stdout(&output).contains("old.txt => new.txt | 0"));
 }
+
+#[test]
+fn show_similarity_rename_with_edits() {
+    let repo = TestRepo::new();
+    init(&repo);
+    let mut contents = String::new();
+    for index in 0..10 {
+        contents.push_str(&format!("line {index}\n"));
+    }
+    repo.write("old.txt", contents.as_bytes());
+    assert!(run(&repo, &["commit", "-m", "seed"]).status.success());
+    std::fs::rename(repo.path_of("old.txt"), repo.path_of("new.txt")).unwrap();
+    repo.write(
+        "new.txt",
+        contents.replace("line 5\n", "CHANGED\n").as_bytes(),
+    );
+    assert!(run(&repo, &["commit", "-m", "rename"]).status.success());
+
+    let output = run(&repo, &["show", "HEAD"]);
+    let text = stdout(&output);
+    assert!(text.contains("similarity index 90%"), "{text}");
+    assert!(text.contains("rename from old.txt"), "{text}");
+    assert!(text.contains("-line 5"), "{text}");
+    assert!(text.contains("+CHANGED"), "{text}");
+
+    let output = run(&repo, &["log", "-n", "1", "--stat"]);
+    let text = stdout(&output);
+    assert!(text.contains("old.txt => new.txt | 1 +, 1 -"), "{text}");
+}

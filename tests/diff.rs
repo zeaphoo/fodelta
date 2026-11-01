@@ -329,3 +329,58 @@ fn histogram_can_be_selected_through_config() {
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert!(stdout(&output).contains("+THREE"));
 }
+
+fn seed_renamable(repo: &TestRepo) {
+    let mut contents = String::new();
+    for index in 0..10 {
+        contents.push_str(&format!("line {index}\n"));
+    }
+    repo.write("old.txt", contents.as_bytes());
+    assert!(run(repo, &["commit", "-m", "seed"]).status.success());
+    std::fs::rename(repo.path_of("old.txt"), repo.path_of("new.txt")).unwrap();
+    let edited = contents.replace("line 5\n", "CHANGED\n");
+    repo.write("new.txt", edited.as_bytes());
+}
+
+#[test]
+fn similarity_renames_and_threshold_flags() {
+    let repo = TestRepo::new();
+    init(&repo);
+    seed_renamable(&repo);
+
+    let output = run(&repo, &["diff", "--name-status"]);
+    assert_eq!(stdout(&output).trim(), "R90\told.txt\tnew.txt");
+
+    let output = run(&repo, &["diff"]);
+    let text = stdout(&output);
+    assert!(text.contains("similarity index 90%"), "{text}");
+    assert!(text.contains("rename from old.txt"), "{text}");
+    assert!(text.contains("rename to new.txt"), "{text}");
+    assert!(text.contains("-line 5"), "{text}");
+    assert!(text.contains("+CHANGED"), "{text}");
+
+    let output = run(&repo, &["diff", "--no-renames", "--name-status"]);
+    let text = stdout(&output);
+    assert!(text.contains("D\told.txt"), "{text}");
+    assert!(text.contains("A\tnew.txt"), "{text}");
+
+    let output = run(
+        &repo,
+        &["diff", "--rename-threshold", "95", "--name-status"],
+    );
+    let text = stdout(&output);
+    assert!(text.contains("D\told.txt"), "{text}");
+    assert!(text.contains("A\tnew.txt"), "{text}");
+
+    let output = run(&repo, &["diff", "--diff-filter=R", "--name-status"]);
+    assert_eq!(stdout(&output).trim(), "R90\told.txt\tnew.txt");
+}
+
+#[test]
+fn diff_filter_rejects_unknown_letters() {
+    let repo = TestRepo::new();
+    seed(&repo);
+    let output = run(&repo, &["diff", "--diff-filter=Z"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("--diff-filter"));
+}

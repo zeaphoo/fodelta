@@ -87,11 +87,17 @@ pub fn render(
             ));
             out.push_str(&format!("rename from {old_display}\n"));
             out.push_str(&format!("rename to {new_display}\n"));
-            return Ok(Rendered {
-                text: out,
-                stats: Some(LineStats::default()),
-                binary: false,
-            });
+            let content_changed = match (old_info, new_info) {
+                (Some(old), Some(new)) => old.oid != new.oid,
+                _ => true,
+            };
+            if !content_changed {
+                return Ok(Rendered {
+                    text: out,
+                    stats: Some(LineStats::default()),
+                    binary: false,
+                });
+            }
         }
         FileChangeKind::Added => {
             if let Some(new) = new_info {

@@ -243,8 +243,32 @@ fn normalize_line(line: &str, whitespace: WhitespaceOptions) -> String {
     }
 }
 
+/// Line based similarity in percent, or `None` for binary content.
+pub fn similarity(old: &[u8], new: &[u8]) -> Option<u8> {
+    if is_binary(old) || is_binary(new) {
+        return None;
+    }
+    let old_text = String::from_utf8_lossy(old);
+    let new_text = String::from_utf8_lossy(new);
+    let old_lines = split_lines(&old_text);
+    let new_lines = split_lines(&new_text);
+    let total = old_lines.len() + new_lines.len();
+    if total == 0 {
+        return Some(100);
+    }
+    let ops = capture_diff_slices(Algorithm::Myers, &old_lines, &new_lines);
+    let equal: usize = ops
+        .iter()
+        .map(|op| match *op {
+            DiffOp::Equal { len, .. } => len,
+            _ => 0,
+        })
+        .sum();
+    Some(((equal.saturating_mul(200) / total).min(100)) as u8)
+}
+
 /// Split on `\n` while preserving the terminator, including CRLF.
-fn split_lines(text: &str) -> Vec<&str> {
+pub fn split_lines(text: &str) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut start = 0;
     for (index, byte) in text.bytes().enumerate() {

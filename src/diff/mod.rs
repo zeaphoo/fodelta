@@ -3,7 +3,7 @@
 pub mod render;
 pub mod text;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::Result;
 use crate::history::revparse::read_commit;
@@ -156,7 +156,26 @@ pub fn commit_sides<'a>(
     ))
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RenameOptions {
+    pub enabled: bool,
+    pub threshold: u8,
+}
+
+impl Default for RenameOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            threshold: 50,
+        }
+    }
+}
+
 pub fn diff_trees(before: &TreeMap, after: &TreeMap) -> Vec<FileChange> {
+    diff_trees_with(before, after, true)
+}
+
+pub fn diff_trees_with(before: &TreeMap, after: &TreeMap, detect_exact: bool) -> Vec<FileChange> {
     let mut paths: BTreeSet<&Vec<u8>> = BTreeSet::new();
     paths.extend(before.keys());
     paths.extend(after.keys());
@@ -197,9 +216,105 @@ pub fn diff_trees(before: &TreeMap, after: &TreeMap) -> Vec<FileChange> {
             _ => {}
         }
     }
-    detect_exact_renames(&mut changes);
+    if detect_exact {
+        detect_exact_renames(&mut changes);
+    }
     changes.sort_by(|a, b| a.path.cmp(&b.path));
     changes
+}
+
+/// Pair remaining deleted/added files by content similarity.
+pub fn detect_renames(
+    left: &DiffSide<'_>,
+    right: &DiffSide<'_>,
+    changes: &mut Vec<FileChange>,
+    options: RenameOptions,
+) -> Result<()> {
+    if !options.enabled {
+        return Ok(());
+    }
+    let deleted: Vec<usize> = changes
+        .iter()
+        .enumerate()
+        .filter(|(_, change)| change.kind == FileChangeKind::Deleted)
+        .map(|(index, _)| index)
+        .collect();
+    let added: Vec<usize> = changes
+        .iter()
+        .enumerate()
+        .filter(|(_, change)| change.kind == FileChangeKind::Added)
+        .map(|(index, _)| index)
+        .collect();
+    if deleted.is_empty() || added.is_empty() {
+        return Ok(());
+    }
+    // Avoid quadratic work on pathological mass-add/mass-delete diffs.
+    if deleted.len().saturating_mul(added.len()) > 100_000 {
+        return Ok(());
+    }
+
+    let mut deleted_bytes: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
+    for &index in &deleted {
+        let change = &changes[index];
+        let info = change.old.expect("deleted change has an old side");
+        deleted_bytes.insert(index, left.read(&change.path, &info)?);
+    }
+    let mut added_bytes: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
+    for &index in &added {
+        let change = &changes[index];
+        let info = change.new.expect("added change has a new side");
+        added_bytes.insert(index, right.read(&change.path, &info)?);
+    }
+
+    let mut used_added = BTreeSet::new();
+    let mut used_deleted = BTreeSet::new();
+    let mut renames = Vec::new();
+    for &add_index in &added {
+        let mut best: Option<(u8, usize)> = None;
+        for &del_index in &deleted {
+            if used_deleted.contains(&del_index) {
+                continue;
+            }
+            let Some(score) =
+                crate::diff::text::similarity(&deleted_bytes[&del_index], &added_bytes[&add_index])
+            else {
+                continue;
+            };
+            if score < options.threshold {
+                continue;
+            }
+            if best.is_none_or(|(best_score, _)| score > best_score) {
+                best = Some((score, del_index));
+            }
+        }
+        let Some((score, del_index)) = best else {
+            continue;
+        };
+        used_added.insert(add_index);
+        used_deleted.insert(del_index);
+        renames.push(FileChange {
+            path: changes[add_index].path.clone(),
+            old_path: Some(changes[del_index].path.clone()),
+            kind: FileChangeKind::Renamed,
+            similarity: Some(score),
+            old: changes[del_index].old,
+            new: changes[add_index].new,
+        });
+    }
+
+    if renames.is_empty() {
+        return Ok(());
+    }
+    let mut remaining = Vec::new();
+    for (index, change) in changes.drain(..).enumerate() {
+        if !used_added.contains(&index) && !used_deleted.contains(&index) {
+            remaining.push(change);
+        }
+    }
+    remaining.extend(renames);
+    remaining.sort_by(|a, b| a.path.cmp(&b.path));
+    *changes = remaining;
+    Ok(())
 }
 
 fn detect_exact_renames(changes: &mut Vec<FileChange>) {
