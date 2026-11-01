@@ -120,6 +120,32 @@ mod tests {
     use crate::history::{CommitOptions, create_commit};
 
     #[test]
+    fn removes_old_unreachable_objects() {
+        use std::time::{Duration, SystemTime};
+
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        let orphan = repo.store().write_blob(b"orphan").unwrap();
+        let path = repo.store().path_for(orphan);
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_times(
+            std::fs::FileTimes::new()
+                .set_modified(SystemTime::now() - Duration::from_secs(20 * 86_400)),
+        )
+        .unwrap();
+        drop(file);
+
+        let outcome = gc(&repo, false).unwrap();
+        assert!(outcome.removed >= 1);
+        assert!(!repo.store().exists(orphan));
+        assert!(
+            crate::maintenance::fsck::fsck(&repo, false)
+                .unwrap()
+                .is_healthy()
+        );
+    }
+
+    #[test]
     fn keeps_reachable_objects_and_reports_dangling() {
         let dir = tempfile::tempdir().unwrap();
         let repo = Repository::init(dir.path()).unwrap();
