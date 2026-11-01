@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+use crate::repo::Repository;
 use crate::{ExitCode, FodeltaError, Result};
 
 /// A local, single-branch directory version control tool.
@@ -221,27 +222,85 @@ pub enum IgnoreCommand {
     },
 }
 
-/// Dispatch a parsed command. Behavior is filled in by later tasks; the
-/// scaffolding returns a clear "not implemented" error instead of panicking.
+/// Dispatch a parsed command.
 pub fn dispatch(cli: Cli) -> Result<ExitCode> {
-    let name = match &cli.command {
-        Command::Init { .. } => "init",
-        Command::Status { .. } => "status",
-        Command::Commit { .. } => "commit",
-        Command::Log { .. } => "log",
-        Command::Show { .. } => "show",
-        Command::Diff { .. } => "diff",
-        Command::Restore { .. } => "restore",
-        Command::Rollback { .. } => "rollback",
-        Command::Safety => "safety",
-        Command::Ignore { .. } => "ignore",
-        Command::Gc { .. } => "gc",
-        Command::Fsck { .. } => "fsck",
-        Command::Config { .. } => "config",
-    };
+    let Cli {
+        cwd,
+        command,
+        quiet,
+        color: _,
+        jobs: _,
+    } = cli;
+    let start = resolve_start(&cwd)?;
 
-    let _ = (&cli.cwd, cli.color, cli.jobs, cli.quiet);
-    Err(FodeltaError::NotImplemented(name))
+    match command {
+        Command::Init { path } => {
+            let target = match path {
+                Some(path) if path.is_absolute() => path,
+                Some(path) => start.join(path),
+                None => start,
+            };
+            let repo = Repository::init(&target)?;
+            if !quiet {
+                println!(
+                    "Initialized empty fodelta repository in {}",
+                    repo.fodelta.display()
+                );
+            }
+            Ok(ExitCode::Success)
+        }
+        Command::Config { key, value } => cmd_config(&start, key, value),
+        Command::Status { .. } => Err(FodeltaError::NotImplemented("status")),
+        Command::Commit { .. } => Err(FodeltaError::NotImplemented("commit")),
+        Command::Log { .. } => Err(FodeltaError::NotImplemented("log")),
+        Command::Show { .. } => Err(FodeltaError::NotImplemented("show")),
+        Command::Diff { .. } => Err(FodeltaError::NotImplemented("diff")),
+        Command::Restore { .. } => Err(FodeltaError::NotImplemented("restore")),
+        Command::Rollback { .. } => Err(FodeltaError::NotImplemented("rollback")),
+        Command::Safety => Err(FodeltaError::NotImplemented("safety")),
+        Command::Ignore { .. } => Err(FodeltaError::NotImplemented("ignore")),
+        Command::Gc { .. } => Err(FodeltaError::NotImplemented("gc")),
+        Command::Fsck { .. } => Err(FodeltaError::NotImplemented("fsck")),
+    }
+}
+
+fn resolve_start(cwd: &std::path::Path) -> Result<PathBuf> {
+    let base = std::env::current_dir()?;
+    let path = if cwd.is_absolute() {
+        cwd.to_path_buf()
+    } else {
+        base.join(cwd)
+    };
+    Ok(path.canonicalize()?)
+}
+
+fn cmd_config(
+    start: &std::path::Path,
+    key: Option<String>,
+    value: Option<String>,
+) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    match (key, value) {
+        (None, None) => {
+            let text = toml::to_string_pretty(&repo.config)
+                .map_err(|error| FodeltaError::Config(error.to_string()))?;
+            print!("{text}");
+        }
+        (Some(key), None) => {
+            println!("{}", repo.config.get(&key)?);
+        }
+        (Some(key), Some(value)) => {
+            let mut config = repo.config.clone();
+            config.set(&key, &value)?;
+            config.save(&repo.config_path())?;
+        }
+        (None, Some(_)) => {
+            return Err(FodeltaError::Config(
+                "a configuration value requires a key".to_string(),
+            ));
+        }
+    }
+    Ok(ExitCode::Success)
 }
 
 #[cfg(test)]

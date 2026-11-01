@@ -10,6 +10,9 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 pub mod cli;
+pub mod odb;
+pub mod repo;
+pub mod util;
 
 /// Convenient result alias used across the library.
 pub type Result<T> = std::result::Result<T, FodeltaError>;
@@ -36,6 +39,9 @@ impl ExitCode {
 pub enum FodeltaError {
     #[error("not a fodelta repository (or any parent up to {start})")]
     NotARepository { start: PathBuf },
+
+    #[error("repository is corrupt: {0}")]
+    RepositoryCorrupt(String),
 
     #[error("a fodelta repository already exists at {root}")]
     RepositoryExists { root: PathBuf },
@@ -84,6 +90,32 @@ pub enum FodeltaError {
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("invalid object: {reason}")]
+    InvalidObject { reason: String },
+
+    #[error("object {oid} is larger than the configured limit ({limit} bytes)")]
+    ObjectTooLarge { oid: String, limit: u64 },
+
+    #[error("object data is too large ({size} bytes, limit {limit})")]
+    DataTooLarge { size: u64, limit: u64 },
+
+    #[error("file is too large: {path} ({size} bytes, limit {limit})")]
+    FileTooLarge {
+        path: PathBuf,
+        size: u64,
+        limit: u64,
+    },
+
+    #[error("cannot initialize a repository inside {ancestor} (target: {root})")]
+    NestedRepository { root: PathBuf, ancestor: PathBuf },
+
+    #[error("reference {reference} changed (expected {expected:?}, found {actual:?})")]
+    RefConflict {
+        reference: String,
+        expected: Option<String>,
+        actual: Option<String>,
+    },
 
     #[error("not implemented yet: {0}")]
     NotImplemented(&'static str),
