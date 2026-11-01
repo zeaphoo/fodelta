@@ -72,8 +72,11 @@ fn show_prints_metadata_and_changes() {
     assert!(text.contains("commit "), "{text}");
     assert!(text.contains("Author: "), "{text}");
     assert!(text.contains("second"), "{text}");
-    assert!(text.contains("M a.txt"), "{text}");
-    assert!(text.contains("A b.txt"), "{text}");
+    assert!(text.contains("--- a/a.txt"), "{text}");
+    assert!(text.contains("-a1"), "{text}");
+    assert!(text.contains("+a2"), "{text}");
+    assert!(text.contains("new file mode 100644"), "{text}");
+    assert!(text.contains("+b"), "{text}");
 }
 
 #[test]

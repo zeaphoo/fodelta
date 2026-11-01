@@ -43,11 +43,11 @@
 
 ## 5. 差分
 
-- [ ] 5.1 实现树级 diff：排序归并、递归目录、`Added/Deleted/Modified/TypeChanged`；验证：单元测试覆盖新增/删除/重命名式删除+新增/目录移动
-- [ ] 5.2 实现文本 diff 与 unified 渲染：Myers/Patience、`-U N`、二进制判定、模式与类型变化行；验证：固定样例输出快照测试（含 CRLF 与无结尾换行）
-- [ ] 5.3 实现三种比较视角：工作区↔`HEAD`、工作区↔版本、版本↔版本；验证：每种视角各一个集成测试，`diff HEAD HEAD` 无输出
-- [ ] 5.4 实现 `--stat`、`--name-status`、`--name-only`、`--exit-code` 与互斥校验；验证：汇总行文本与退出码 0/1 的快照测试通过
-- [ ] 5.5 编写 `docs/cli.md` 的 diff 章节与退出码说明；验证：文档示例命令输出与文本一致
+- [x] 5.1 实现树级 diff：排序归并、递归目录、`Added/Deleted/Modified/TypeChanged`；验证：单元测试覆盖新增/删除/重命名式删除+新增/目录移动
+- [x] 5.2 实现文本 diff 与 unified 渲染：Myers/Patience、`-U N`、二进制判定、模式与类型变化行；验证：固定样例输出快照测试（含 CRLF 与无结尾换行）
+- [x] 5.3 实现三种比较视角：工作区↔`HEAD`、工作区↔版本、版本↔版本；验证：每种视角各一个集成测试，`diff HEAD HEAD` 无输出
+- [x] 5.4 实现 `--stat`、`--name-status`、`--name-only`、`--exit-code` 与互斥校验；验证：汇总行文本与退出码 0/1 的快照测试通过
+- [x] 5.5 编写 `docs/cli.md` 的 diff 章节与退出码说明；验证：文档示例命令输出与文本一致
 
 ## 6. 回退与安全
 

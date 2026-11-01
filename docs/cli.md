@@ -70,6 +70,26 @@ fodelta show HEAD:src/main.rs
 
 `show <rev>` 输出提交元数据与相对父提交的变更列表；`show <rev>:<path>` 把该 blob 原样写入标准输出。
 
+## diff
+
+```bash
+fodelta diff                       # HEAD ↔ 工作区（整仓）
+fodelta diff HEAD~2                # HEAD~2 ↔ 工作区
+fodelta diff HEAD~3 HEAD           # 版本 ↔ 版本
+fodelta diff --stat
+fodelta diff --name-status
+fodelta diff --name-only
+fodelta diff -U0 -- src/
+fodelta diff --exit-code
+```
+
+- 默认比较整个仓库的 `HEAD` 与工作区。
+- 一个版本：该版本 ↔ 工作区；两个版本：版本 ↔ 版本。
+- `--stat`、`--name-status`、`--name-only` 互斥。
+- 文本输出 unified diff；二进制文件输出 `Binary files ... differ`。
+- `--exit-code`：有差异返回 1，无差异返回 0；其他错误返回 2。
+- 路径过滤使用 `-- <path>`，按路径组件前缀匹配，不支持 glob。
+
 ## ignore
 
 ```bash

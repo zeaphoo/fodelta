@@ -8,6 +8,7 @@ use std::time::UNIX_EPOCH;
 
 use ignore::WalkBuilder;
 
+use crate::odb::{ObjectId, ObjectStore};
 use crate::repo::discover::DOT_DIR;
 use crate::util::path;
 use crate::worktree::stat_cache::FileStat;
@@ -156,6 +157,17 @@ pub fn entry_from_path(absolute: &Path, relative: Vec<u8>) -> Result<WorktreeEnt
             mode,
         },
     })
+}
+
+/// Hash the content of a scanned entry without writing an object.
+pub fn entry_oid(store: &ObjectStore, root: &Path, entry: &WorktreeEntry) -> Result<ObjectId> {
+    match entry.kind {
+        EntryKind::Symlink => {
+            let target = symlink_target_bytes(&entry.absolute(root))?;
+            Ok(crate::odb::blob_hash(&target))
+        }
+        EntryKind::File => store.hash_file(&entry.absolute(root)),
+    }
 }
 
 pub fn symlink_target_bytes(absolute: &Path) -> Result<Vec<u8>> {

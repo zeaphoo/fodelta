@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 pub mod cli;
+pub mod diff;
 pub mod history;
 pub mod ignore;
 pub mod odb;

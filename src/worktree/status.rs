@@ -4,9 +4,8 @@ use std::collections::BTreeSet;
 
 use crate::Result;
 use crate::history::head_tree;
-use crate::odb::{ObjectId, ObjectStore};
 use crate::repo::Repository;
-use crate::worktree::scan::{self, EntryKind, WorktreeEntry};
+use crate::worktree::scan;
 use crate::worktree::stat_cache::StatCache;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,7 +53,7 @@ pub fn compute_status(repo: &Repository, include_ignored: bool) -> Result<Status
         seen.insert(entry.path.clone());
         let oid = match cache.lookup(&entry.path, entry.stat) {
             Some(oid) => oid,
-            None => hash_entry(&store, &repo.root, entry)?,
+            None => scan::entry_oid(&store, &repo.root, entry)?,
         };
         match head.get(&entry.path) {
             None => report.added.push(entry.path.clone()),
@@ -81,20 +80,6 @@ pub fn compute_status(repo: &Repository, include_ignored: bool) -> Result<Status
     }
 
     Ok(report)
-}
-
-fn hash_entry(
-    store: &ObjectStore,
-    root: &std::path::Path,
-    entry: &WorktreeEntry,
-) -> Result<ObjectId> {
-    match entry.kind {
-        EntryKind::Symlink => {
-            let target = scan::symlink_target_bytes(&entry.absolute(root))?;
-            Ok(crate::odb::blob_hash(&target))
-        }
-        EntryKind::File => store.hash_file(&entry.absolute(root)),
-    }
 }
 
 #[cfg(test)]

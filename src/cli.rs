@@ -7,7 +7,14 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::history::{CommitOptions, LogOptions, ShowOutput, create_commit, log_entries, show};
+use crate::diff::render::{RenderOptions, render as render_diff};
+use crate::diff::{
+    DiffAlgorithm, DiffSide, SideKind, diff_trees, head_side, rev_side, worktree_side,
+};
+use crate::history::{
+    CommitOptions, LogOptions, ShowOutput, create_commit, flatten_tree, log_entries, read_commit,
+    show,
+};
 use crate::ignore as ignore_rules;
 use crate::repo::Repository;
 use crate::util::path;
@@ -270,7 +277,24 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
             paths,
         } => cmd_log(&start, oneline, limit, stat, reverse, &paths),
         Command::Show { rev } => cmd_show(&start, &rev),
-        Command::Diff { .. } => Err(FodeltaError::NotImplemented("diff")),
+        Command::Diff {
+            revs,
+            stat,
+            name_status,
+            name_only,
+            unified,
+            exit_code,
+            paths,
+        } => cmd_diff(
+            &start,
+            &revs,
+            stat,
+            name_status,
+            name_only,
+            unified,
+            exit_code,
+            &paths,
+        ),
         Command::Restore { .. } => Err(FodeltaError::NotImplemented("restore")),
         Command::Rollback { .. } => Err(FodeltaError::NotImplemented("rollback")),
         Command::Safety => Err(FodeltaError::NotImplemented("safety")),
@@ -288,6 +312,111 @@ fn resolve_start(cwd: &std::path::Path) -> Result<PathBuf> {
         base.join(cwd)
     };
     Ok(path.canonicalize()?)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_diff(
+    start: &std::path::Path,
+    revs: &[String],
+    stat: bool,
+    name_status: bool,
+    name_only: bool,
+    unified: Option<u32>,
+    exit_code: bool,
+    paths: &[PathBuf],
+) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    let selected = [stat, name_status, name_only]
+        .iter()
+        .filter(|value| **value)
+        .count();
+    if selected > 1 {
+        return Err(FodeltaError::Config(
+            "--stat, --name-status and --name-only are mutually exclusive".to_string(),
+        ));
+    }
+
+    let specs = resolve_specs(&repo, start, paths)?;
+    let (left, right) = match revs {
+        [] => (head_side(&repo)?, worktree_side(&repo)?),
+        [rev] => {
+            let oid = crate::history::resolve(&repo, rev)?;
+            (rev_side(&repo, oid)?, worktree_side(&repo)?)
+        }
+        [first, second] => {
+            let first = crate::history::resolve(&repo, first)?;
+            let second = crate::history::resolve(&repo, second)?;
+            (rev_side(&repo, first)?, rev_side(&repo, second)?)
+        }
+        _ => unreachable!("clap limits diff to two revisions"),
+    };
+
+    let mut changes = diff_trees(&left.map, &right.map);
+    if !specs.is_empty() {
+        changes.retain(|change| specs.iter().any(|spec| path::is_within(spec, &change.path)));
+    }
+
+    if name_only {
+        for change in &changes {
+            println!("{}", path::display(&change.path));
+        }
+    } else if name_status {
+        for change in &changes {
+            println!("{}\t{}", change.kind.letter(), path::display(&change.path));
+        }
+    } else if stat {
+        let options = render_options(&repo, unified);
+        let mut insertions = 0usize;
+        let mut deletions = 0usize;
+        for change in &changes {
+            let rendered = render_diff(change, &left, &right, &options)?;
+            match rendered.stats {
+                Some(stats) => {
+                    insertions += stats.added;
+                    deletions += stats.removed;
+                    println!(
+                        " {} | {} insertions(+), {} deletions(-)",
+                        path::display(&change.path),
+                        stats.added,
+                        stats.removed
+                    );
+                }
+                None => println!(" {} | Bin", path::display(&change.path)),
+            }
+        }
+        println!(
+            "{} files changed, {} insertions(+), {} deletions(-)",
+            changes.len(),
+            insertions,
+            deletions
+        );
+    } else {
+        let options = render_options(&repo, unified);
+        for change in &changes {
+            let rendered = render_diff(change, &left, &right, &options)?;
+            print!("{}", rendered.text);
+            if !rendered.text.ends_with('\n') {
+                println!();
+            }
+            println!();
+        }
+    }
+
+    if exit_code && !changes.is_empty() {
+        Ok(ExitCode::Diff)
+    } else {
+        Ok(ExitCode::Success)
+    }
+}
+
+fn render_options(repo: &Repository, unified: Option<u32>) -> RenderOptions {
+    RenderOptions {
+        context: unified
+            .map(|value| value as usize)
+            .unwrap_or(repo.config.diff.context as usize),
+        algorithm: DiffAlgorithm::from_config(&repo.config.diff.algorithm),
+        max_inline_bytes: repo.config.diff.max_inline_bytes as usize,
+    }
 }
 
 fn cmd_log(
@@ -377,11 +506,37 @@ fn cmd_show(start: &std::path::Path, spec: &str) -> Result<ExitCode> {
                 println!("    {line}");
             }
             println!();
-            if view.changes.is_empty() {
+            let store = repo.store();
+            let right_map = flatten_tree(&store, view.commit.tree)?;
+            let left_map = match view.commit.parent {
+                Some(parent) => {
+                    let parent = read_commit(&repo, parent)?;
+                    flatten_tree(&store, parent.tree)?
+                }
+                None => crate::history::TreeMap::new(),
+            };
+            let left = DiffSide {
+                repo: &repo,
+                map: left_map,
+                kind: SideKind::Store,
+            };
+            let right = DiffSide {
+                repo: &repo,
+                map: right_map,
+                kind: SideKind::Store,
+            };
+            let changes = diff_trees(&left.map, &right.map);
+            if changes.is_empty() {
                 println!("(no changes)");
             } else {
-                for (path, kind) in &view.changes {
-                    println!("{} {}", kind.letter(), path::display(path));
+                let options = render_options(&repo, None);
+                for change in &changes {
+                    let rendered = render_diff(change, &left, &right, &options)?;
+                    print!("{}", rendered.text);
+                    if !rendered.text.ends_with('\n') {
+                        println!();
+                    }
+                    println!();
                 }
             }
         }
