@@ -15,6 +15,7 @@ pub mod history;
 pub mod ignore;
 pub mod odb;
 pub mod repo;
+pub mod safety;
 pub mod util;
 pub mod worktree;
 

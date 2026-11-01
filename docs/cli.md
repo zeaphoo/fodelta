@@ -90,6 +90,41 @@ fodelta diff --exit-code
 - `--exit-code`：有差异返回 1，无差异返回 0；其他错误返回 2。
 - 路径过滤使用 `-- <path>`，按路径组件前缀匹配，不支持 glob。
 
+## restore
+
+```bash
+fodelta restore -- a.txt              # 工作区从 HEAD 恢复 a.txt
+fodelta restore HEAD~2 -- src/        # 从历史版本恢复目录
+fodelta restore HEAD~1 --delete       # 整棵树恢复，并删除目标版本中不存在的文件
+fodelta restore --no-safety -- a.txt
+```
+
+- `restore <rev>` 缺省使用 `HEAD`。
+- 只改工作区，不改历史。
+- 路径放在 `--` 之后，避免与 `<rev>` 位置参数混淆。
+- 会覆盖未提交内容时自动创建安全快照；`--no-safety` 关闭并警告。
+- 路径必须位于仓库内，拒绝 `..` 与绝对路径。
+
+## rollback
+
+```bash
+fodelta rollback HEAD~2
+fodelta rollback HEAD~2 -m "回到上周版本"
+fodelta rollback HEAD                # 干净时 no-op；脏时仅同步工作区
+```
+
+追加一个新提交，其树等于目标版本，历史不丢失。工作区会被同步为目标树的精确状态
+（保留未跟踪的忽略文件）；有未提交修改时先创建安全快照。
+
+## safety
+
+```bash
+fodelta safety
+```
+
+按时间倒序列出安全快照：短哈希、时间、原因。安全快照不在 `refs/` 下，不会出现在
+`log` 中，但可以用 `fodelta show <id>` 查看、用 `fodelta restore <id> --delete` 整体恢复。
+
 ## ignore
 
 ```bash

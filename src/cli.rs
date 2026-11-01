@@ -12,14 +12,16 @@ use crate::diff::{
     DiffAlgorithm, DiffSide, SideKind, diff_trees, head_side, rev_side, worktree_side,
 };
 use crate::history::{
-    CommitOptions, LogOptions, ShowOutput, create_commit, flatten_tree, log_entries, read_commit,
-    show,
+    CommitOptions, LogOptions, RollbackOptions, ShowOutput, create_commit, flatten_tree,
+    log_entries, read_commit, rollback as rollback_history, show,
 };
 use crate::ignore as ignore_rules;
 use crate::repo::Repository;
+use crate::safety as safety_store;
 use crate::util::path;
 use crate::util::time;
 use crate::worktree::compute_status;
+use crate::worktree::restore::{RestoreOptions, restore as restore_worktree};
 use crate::{ExitCode, FodeltaError, Result};
 
 /// A local, single-branch directory version control tool.
@@ -295,9 +297,18 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
             exit_code,
             &paths,
         ),
-        Command::Restore { .. } => Err(FodeltaError::NotImplemented("restore")),
-        Command::Rollback { .. } => Err(FodeltaError::NotImplemented("rollback")),
-        Command::Safety => Err(FodeltaError::NotImplemented("safety")),
+        Command::Restore {
+            rev,
+            delete,
+            no_safety,
+            paths,
+        } => cmd_restore(&start, rev, delete, no_safety, &paths),
+        Command::Rollback {
+            rev,
+            message,
+            no_safety,
+        } => cmd_rollback(&start, &rev, message, no_safety),
+        Command::Safety => cmd_safety(&start),
         Command::Ignore { command } => cmd_ignore(&start, command),
         Command::Gc { .. } => Err(FodeltaError::NotImplemented("gc")),
         Command::Fsck { .. } => Err(FodeltaError::NotImplemented("fsck")),
@@ -312,6 +323,97 @@ fn resolve_start(cwd: &std::path::Path) -> Result<PathBuf> {
         base.join(cwd)
     };
     Ok(path.canonicalize()?)
+}
+
+fn cmd_restore(
+    start: &std::path::Path,
+    rev: Option<String>,
+    delete: bool,
+    no_safety: bool,
+    paths: &[PathBuf],
+) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    let source = match rev {
+        Some(rev) => Some(crate::history::resolve(&repo, &rev)?),
+        None => None,
+    };
+    let specs = resolve_specs(&repo, start, paths)?;
+    let outcome = restore_worktree(
+        &repo,
+        &RestoreOptions {
+            source,
+            paths: specs,
+            delete,
+            no_safety,
+        },
+    )?;
+
+    if let Some(safety) = outcome.safety {
+        println!("safety snapshot {}", safety.short());
+    }
+    if outcome.safety_skipped {
+        eprintln!("warning: no safety snapshot was created; uncommitted changes may be lost");
+    }
+    println!(
+        "restored {} file(s), deleted {} file(s)",
+        outcome.restored, outcome.deleted
+    );
+    Ok(ExitCode::Success)
+}
+
+fn cmd_rollback(
+    start: &std::path::Path,
+    rev: &str,
+    message: Option<String>,
+    no_safety: bool,
+) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    let target = crate::history::resolve(&repo, rev)?;
+    let outcome = rollback_history(
+        &repo,
+        &RollbackOptions {
+            target,
+            message,
+            no_safety,
+        },
+    )?;
+
+    match outcome.commit {
+        Some(oid) => println!("[main {}] rollback to {}", oid.short(), target.short()),
+        None => println!("nothing to rollback"),
+    }
+    if let Some(safety) = outcome.safety {
+        println!("safety snapshot {}", safety.short());
+    }
+    if outcome.safety_skipped {
+        eprintln!("warning: no safety snapshot was created; uncommitted changes may be lost");
+    }
+    if outcome.synced {
+        if outcome.changed > 0 {
+            println!(" {} file(s) changed", outcome.changed);
+        } else {
+            println!("working tree synchronized");
+        }
+    }
+    Ok(ExitCode::Success)
+}
+
+fn cmd_safety(start: &std::path::Path) -> Result<ExitCode> {
+    let repo = Repository::open(start)?;
+    let entries = safety_store::list(&repo)?;
+    if entries.is_empty() {
+        println!("no safety snapshots");
+    } else {
+        for entry in entries {
+            println!(
+                "{}  {}  {}",
+                entry.oid.short(),
+                time::format_timestamp(entry.timestamp, entry.offset_minutes),
+                entry.reason
+            );
+        }
+    }
+    Ok(ExitCode::Success)
 }
 
 #[allow(clippy::too_many_arguments)]

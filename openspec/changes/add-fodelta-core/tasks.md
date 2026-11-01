@@ -51,14 +51,14 @@
 
 ## 6. 回退与安全
 
-- [ ] 6.1 实现 `restore`（默认源 `HEAD`，覆盖工作区、不改历史）；验证：恢复被修改文件后 `status` 干净，`HEAD` 不变
-- [ ] 6.2 实现 `restore <rev>`、路径范围与 `--delete` 清理空目录；验证：恢复旧版本后逐字节比对，`--delete` 后集合与目标树一致
-- [ ] 6.3 实现恢复路径安全：拒绝绝对路径、`..`、逃逸根目录、透过符号链接写入；验证：安全测试不修改仓库外文件
-- [ ] 6.4 实现 `rollback`：脏工作区安全快照、追加单亲提交、同步工作区（含删除多余文件）、目标等于 HEAD 时按需同步工作区且不产生重复提交；验证：历史长度 +1，内容一致，`rollback HEAD` 不产生提交，中断后重跑可收敛
-- [ ] 6.5 实现安全快照：`logs/safety` 追加、快照哈希输出、`--no-safety` 警告、干净工作区不生成快照；验证：快照哈希可 `show`，`restore <safety-id> --delete` 完整找回
-- [ ] 6.6 实现 `safety` 列表（倒序、短哈希、原因、坏行跳过）；验证：快照不出现在 `log`，`safety` 输出顺序正确
-- [ ] 6.7 恢复/回退后刷新 stat-cache，保证 `status` 无虚假修改；验证：`restore HEAD` 与 `rollback` 后立即 `status` 均为 clean
-- [ ] 6.8 编写 `docs/cli.md` 的 restore/rollback/safety 章节与“误操作恢复”指南；验证：按文档从 safety 恢复被覆盖的内容
+- [x] 6.1 实现 `restore`（默认源 `HEAD`，覆盖工作区、不改历史）；验证：恢复被修改文件后 `status` 干净，`HEAD` 不变
+- [x] 6.2 实现 `restore <rev>`、路径范围与 `--delete` 清理空目录；验证：恢复旧版本后逐字节比对，`--delete` 后集合与目标树一致
+- [x] 6.3 实现恢复路径安全：拒绝绝对路径、`..`、逃逸根目录、透过符号链接写入；验证：安全测试不修改仓库外文件
+- [x] 6.4 实现 `rollback`：脏工作区安全快照、追加单亲提交、同步工作区（含删除多余文件）、目标等于 HEAD 时按需同步工作区且不产生重复提交；验证：历史长度 +1，内容一致，`rollback HEAD` 不产生提交，中断后重跑可收敛
+- [x] 6.5 实现安全快照：`logs/safety` 追加、快照哈希输出、`--no-safety` 警告、干净工作区不生成快照；验证：快照哈希可 `show`，`restore <safety-id> --delete` 完整找回
+- [x] 6.6 实现 `safety` 列表（倒序、短哈希、原因、坏行跳过）；验证：快照不出现在 `log`，`safety` 输出顺序正确
+- [x] 6.7 恢复/回退后刷新 stat-cache，保证 `status` 无虚假修改；验证：`restore HEAD` 与 `rollback` 后立即 `status` 均为 clean
+- [x] 6.8 编写 `docs/cli.md` 的 restore/rollback/safety 章节与“误操作恢复”指南；验证：按文档从 safety 恢复被覆盖的内容
 
 ## 7. 维护、发布与文档
 
